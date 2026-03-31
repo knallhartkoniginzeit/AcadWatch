@@ -1,0 +1,85 @@
+.results-page  { display:flex; flex-direction:column; gap:20px; max-width:900px; }
+.results-top   { display:flex; align-items:center; gap:16px; }
+.results-empty { display:flex; flex-direction:column; align-items:center; gap:16px; padding:80px; text-align:center; }
+
+.risk-banner {
+  border-radius:var(--radius); padding:20px 24px;
+  display:flex; align-items:center; justify-content:space-between; gap:16px;
+  border:1px solid;
+}
+.banner-danger  { background:var(--danger-bg); border-color:#fca5a5; }
+.banner-success { background:var(--success-bg); border-color:#6ee7b7; }
+
+.banner-left { display:flex; align-items:center; gap:16px; }
+.banner-indicator { width:14px; height:14px; border-radius:50%; flex-shrink:0; }
+.banner-label { font-family:var(--font-display); font-size:18px; font-weight:800; color:var(--navy); }
+.banner-sub   { font-size:13px; color:var(--text2); margin-top:2px; }
+.banner-change { font-size:12px; color:var(--accent); margin-top:4px; }
+
+.banner-score { font-family:var(--font-display); font-size:44px; font-weight:800; line-height:1; color:var(--navy); letter-spacing:-0.03em; }
+.banner-score span { font-size:16px; color:var(--text3); }
+
+.results-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+
+.card-title { font-family:var(--font-display); font-size:13px; font-weight:700; color:var(--navy); margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+.card-note  { font-size:11px; font-weight:400; color:var(--text3); font-family:var(--font-body); }
+
+.gauge-card { position:relative; }
+.gauge-center { position:absolute; bottom:24px; left:50%; transform:translateX(-50%); text-align:center; }
+.gauge-num  { display:block; font-family:var(--font-display); font-size:26px; font-weight:800; }
+.gauge-sub  { font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:0.05em; }
+
+.no-factors { padding:20px 0; color:var(--success); font-size:14px; }
+.factors-list { display:flex; flex-direction:column; gap:10px; }
+.factor-row { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:var(--radius-sm); background:var(--surface2); }
+.factor-bar { width:3px; height:30px; border-radius:2px; flex-shrink:0; }
+.sev-high   .factor-bar { background:var(--danger); }
+.sev-medium .factor-bar { background:var(--warning); }
+.factor-info { flex:1; }
+.factor-name { display:block; font-size:13px; font-weight:600; color:var(--navy); }
+.factor-val  { font-size:11px; color:var(--text3); }
+
+.recs-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; }
+.rec-card  { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px; }
+.rc-head   { display:flex; align-items:flex-start; gap:10px; margin-bottom:10px; }
+.rc-icon   { font-size:22px; flex-shrink:0; }
+.rc-title  { font-size:13px; font-weight:600; color:var(--navy); }
+.rc-cat    { font-size:10px; color:var(--accent); text-transform:uppercase; letter-spacing:0.04em; margin-top:2px; }
+.rc-actions { list-style:none; display:flex; flex-direction:column; gap:5px; }
+.rc-actions li { font-size:12px; color:var(--text2); padding-left:12px; position:relative; line-height:1.5; }
+.rc-actions li::before { content:'›'; position:absolute; left:0; color:var(--accent); font-weight:700; }
+
+.results-actions { display:flex; gap:10px; flex-wrap:wrap; }
+
+/* ML Model Comparison */
+.ml-models-grid {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:12px;
+}
+.ml-model-card {
+  border-radius:var(--radius-sm); padding:16px 14px;
+  border:1px solid var(--border); display:flex; flex-direction:column; gap:8px;
+  transition:transform .15s;
+}
+.ml-model-card:hover { transform:translateY(-2px); }
+.ml-risk { background:#fff5f5; border-color:#fca5a5; }
+.ml-pass { background:#f0fdf4; border-color:#6ee7b7; }
+
+.ml-model-icon { font-size:22px; }
+.ml-model-name { font-size:12px; font-weight:600; color:var(--text2); }
+.ml-model-label {
+  font-family:var(--font-display); font-size:14px; font-weight:700; margin-top:2px;
+}
+.label-risk { color:var(--danger); }
+.label-pass { color:var(--success); }
+
+.ml-model-prob { display:flex; flex-direction:column; gap:4px; margin-top:4px; }
+.ml-prob-bar-track {
+  height:5px; border-radius:3px; background:var(--border); overflow:hidden;
+}
+.ml-prob-bar-fill { height:100%; border-radius:3px; transition:width .4s ease; }
+.ml-prob-pct { font-size:10px; color:var(--text3); }
+
+@media (max-width:700px) {
+  .results-grid { grid-template-columns:1fr; }
+  .ml-models-grid { grid-template-columns:1fr; }
+}

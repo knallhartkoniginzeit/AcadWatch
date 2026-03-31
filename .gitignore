@@ -1,0 +1,4 @@
+backend/acadwatch_data.xlsx
+backend/__pycache__/
+frontend/node_modules/
+.env
