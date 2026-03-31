@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Students.css';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
 
 export default function Students() {
   const navigate = useNavigate();

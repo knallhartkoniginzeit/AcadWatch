@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './Recommendations.css';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
 
 export default function Recommendations() {
   const [recs, setRecs]       = useState([]);

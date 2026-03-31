@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import pandas as pd
@@ -15,7 +16,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 
 app = FastAPI(title="AcadWatch API v2")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
 
 EXCEL_PATH = os.environ.get("EXCEL_PATH", "acadwatch_data.xlsx")
 
@@ -433,10 +434,6 @@ def login(req: LoginRequest):
         
     raise HTTPException(status_code=400, detail="Invalid role specified")
 
-@app.get("/")
-def root():
-    return {"status":"AcadWatch API v2 running", "excel": EXCEL_PATH}
-
 # ── Dashboard ──
 @app.get("/dashboard")
 def dashboard():
@@ -709,3 +706,16 @@ def seed_bulk():
         )
         results.append(upsert_student(s))
     return {"seeded": len(results), "at_risk": sum(1 for r in results if r["risk_label"]=="At Risk")}
+
+# ── Frontend Catch-all ──
+@app.get("/{full_path:path}")
+async def serve_react(full_path: str):
+    static_file = os.path.join("static", full_path)
+    if os.path.isfile(static_file):
+        return FileResponse(static_file)
+    
+    index_file = os.path.join("static", "index.html")
+    if os.path.isfile(index_file):
+        return FileResponse(index_file)
+        
+    return {"status": "API active. Frontend not built. Run 'npm run build' and put inside /static folder."}

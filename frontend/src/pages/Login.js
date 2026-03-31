@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './Login.css';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
 
 export default function Login({ onLogin }) {
   const [roleMode, setRoleMode] = useState('student');

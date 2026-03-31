@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import './AddStudent.css';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
 
 const EMPTY = {
   student_id:'', name:'', section:'', email:'',
