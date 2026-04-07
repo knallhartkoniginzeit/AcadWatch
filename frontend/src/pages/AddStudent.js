@@ -71,6 +71,7 @@ export default function AddStudent({ user }) {
     }
     setSaving(true);
     setError(null);
+    setSuccess(null);
     try {
       const res = await fetch(`${API}/subjects/marks`, {
         method: 'POST',
@@ -82,11 +83,20 @@ export default function AddStudent({ user }) {
           updated_by: user?.username || 'faculty'
         })
       });
-      if (!res.ok) throw new Error('Failed to save');
-      setSuccess('Marks updated successfully!');
-      setTimeout(() => setSuccess(null), 3000);
+      
+      const result = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(result.detail || 'Failed to save marks');
+      }
+      
+      setSuccess(`Marks for ${selectedStudent} updated successfully!`);
+      // Scroll to top to see success message
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setTimeout(() => setSuccess(null), 5000);
     } catch (e) {
-      setError(e.message);
+      setError(`Error: ${e.message}`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setSaving(false);
     }

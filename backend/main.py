@@ -476,76 +476,101 @@ def read_recs() -> pd.DataFrame:
         return pd.DataFrame(columns=REC_COLS)
 
 def save_students(df: pd.DataFrame):
-    wb = openpyxl.load_workbook(EXCEL_PATH)
-    if SHEET_STUDENTS in wb.sheetnames:
-        del wb[SHEET_STUDENTS]
-    ws = wb.create_sheet(SHEET_STUDENTS, 0)
-    ws.append(STUDENT_COLS)
-    style_header_row(ws)
-    for _, row in df.iterrows():
-        vals = [row.get(c,"") for c in STUDENT_COLS]
-        ws.append(vals)
-        risk = row.get("risk_label","")
-        style_data_row(ws, ws.max_row, risk)
-    widths = [12,20,10,24,14,12,16,16,16,14,14,12,16,10,12,16,18,14]
-    for i,w in enumerate(widths,1):
-        ws.column_dimensions[get_column_letter(i)].width = w
-    ws.freeze_panes = "A2"
-    ws.row_dimensions[1].height = 30
-    wb.save(EXCEL_PATH)
+    """Safely saves the Students sheet with retry logic for file locks."""
+    import time
+    for redo in range(3):
+        try:
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            if SHEET_STUDENTS in wb.sheetnames:
+                del wb[SHEET_STUDENTS]
+            ws = wb.create_sheet(SHEET_STUDENTS, 0)
+            ws.append(STUDENT_COLS)
+            style_header_row(ws)
+            for _, row in df.iterrows():
+                vals = [row.get(c,"") for c in STUDENT_COLS]
+                ws.append(vals)
+                risk = row.get("risk_label","")
+                style_data_row(ws, ws.max_row, risk)
+            widths = [12,20,10,24,14,12,16,16,16,14,14,12,16,10,12,16,18,14]
+            for i,w in enumerate(widths,1):
+                ws.column_dimensions[get_column_letter(i)].width = w
+            ws.freeze_panes = "A2"
+            ws.row_dimensions[1].height = 30
+            wb.save(EXCEL_PATH)
+            print(f"[Admin] Successfully saved {len(df)} students to Excel.")
+            return
+        except Exception as e:
+            print(f"[Admin] Attempt {redo+1} failed to save students: {e}")
+            if redo == 2: raise e
+            time.sleep(0.5)
 
 def append_daily_log(row_data: dict):
-    wb = openpyxl.load_workbook(EXCEL_PATH)
-    ws = wb[SHEET_DAILY]
-    vals = [row_data.get(c,"") for c in DAILY_COLS]
-    ws.append(vals)
-    risk = row_data.get("risk_label","")
-    style_data_row(ws, ws.max_row, risk)
-    wb.save(EXCEL_PATH)
+    """Safely appends a row to the Daily_Log sheet with retry logic."""
+    import time
+    for redo in range(3):
+        try:
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            ws = wb[SHEET_DAILY]
+            ws.append([row_data.get(c,"") for c in DAILY_COLS])
+            style_data_row(ws, ws.max_row, row_data.get("risk_label",""))
+            wb.save(EXCEL_PATH)
+            return
+        except Exception as e:
+            print(f"[Log] Attempt {redo+1} failed to append daily log: {e}")
+            if redo == 2: raise e
+            time.sleep(0.5)
 
 def append_recommendations(student_id, name, recs, updated_by):
-    wb = openpyxl.load_workbook(EXCEL_PATH)
-    ws = wb[SHEET_RECS]
+    """Safely appends recommendations with retry logic."""
+    import time
     today = str(date.today())
-    for rec in recs:
-        for action in rec["actions"]:
-            ws.append([today, student_id, name, rec["category"], action, "Pending", updated_by])
-            style_data_row(ws, ws.max_row)
-    wb.save(EXCEL_PATH)
+    for redo in range(3):
+        try:
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            ws = wb[SHEET_RECS]
+            for rec in recs:
+                for action in rec["actions"]:
+                    ws.append([today, student_id, name, rec["category"], action, "Pending", updated_by])
+                    style_data_row(ws, ws.max_row)
+            wb.save(EXCEL_PATH)
+            return
+        except Exception as e:
+            print(f"[Admin] Attempt {redo+1} failed to save recs: {e}")
+            if redo == 2: raise e
+            time.sleep(0.5)
 
 def update_dashboard_summary():
-    df = read_students()
-    if df.empty:
-        return
-    wb = openpyxl.load_workbook(EXCEL_PATH)
-    if SHEET_DASHBOARD in wb.sheetnames:
-        del wb[SHEET_DASHBOARD]
-    ws = wb.create_sheet(SHEET_DASHBOARD)
-    ws.append(["Metric","Value","Date"])
-    style_header_row(ws)
-    today = str(date.today())
-    total     = len(df)
-    at_risk   = len(df[df["risk_label"]=="At Risk"])
-    passing   = len(df[df["risk_label"]=="Pass"])
-    avg_att   = round(df["attendance_percentage"].mean(),1) if total else 0
-    avg_score = round(df["risk_score"].mean(),1) if total else 0
-    rows = [
-        ("Total Students",   total,   today),
-        ("At Risk",          at_risk, today),
-        ("Passing",          passing, today),
-        ("Risk Rate (%)",    round(at_risk/total*100,1) if total else 0, today),
-        ("Avg Attendance %", avg_att, today),
-        ("Avg Risk Score",   avg_score, today),
-    ]
-    for i,(m,v,d) in enumerate(rows,2):
-        ws.cell(i,1,m); ws.cell(i,2,v); ws.cell(i,3,d)
-        for c in ws[i]:
-            c.font = BODY_FONT; c.border = THIN_BORDER
-            c.fill = ALT_FILL if i%2==0 else PatternFill("solid", start_color="FFFFFF")
-    ws.column_dimensions["A"].width = 28
-    ws.column_dimensions["B"].width = 14
-    ws.column_dimensions["C"].width = 14
-    wb.save(EXCEL_PATH)
+    """Safely updates dashboard summary with retry logic."""
+    import time
+    for redo in range(3):
+        try:
+            df = read_students()
+            if df.empty: return
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            if SHEET_DASHBOARD in wb.sheetnames: del wb[SHEET_DASHBOARD]
+            ws = wb.create_sheet(SHEET_DASHBOARD)
+            ws.append(["Metric","Value","Date"])
+            style_header_row(ws)
+            today = str(date.today())
+            t = len(df); ar = len(df[df["risk_label"]=="At Risk"]); p = len(df[df["risk_label"]=="Pass"])
+            rows = [
+                ("Total Students", t, today), ("At Risk", ar, today), ("Passing", p, today),
+                ("Risk Rate (%)", round(ar/t*100,1) if t else 0, today),
+                ("Avg Attendance %", round(df["attendance_percentage"].mean(),1) if t else 0, today),
+                ("Avg Risk Score", round(df["risk_score"].mean(),1) if t else 0, today),
+            ]
+            for i,(m,v,d) in enumerate(rows,2):
+                ws.cell(i,1,m); ws.cell(i,2,v); ws.cell(i,3,d)
+                for c in ws[i]:
+                    c.font = BODY_FONT; c.border = THIN_BORDER
+                    c.fill = ALT_FILL if i%2==0 else PatternFill("solid", start_color="FFFFFF")
+            ws.column_dimensions["A"].width = 28; ws.column_dimensions["B"].width = 14; ws.column_dimensions["C"].width = 14
+            wb.save(EXCEL_PATH)
+            return
+        except Exception as e:
+            print(f"[Admin] Attempt {redo+1} failed dashboard summary update: {e}")
+            if redo == 2: raise e
+            time.sleep(0.5)
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -581,16 +606,25 @@ def read_subject_marks() -> pd.DataFrame:
         return pd.DataFrame(columns=SUBJECT_MARKS_COLS)
 
 def save_subject_marks(df: pd.DataFrame):
-    wb = openpyxl.load_workbook(EXCEL_PATH)
-    if SHEET_SUBJECT_MARKS in wb.sheetnames:
-        del wb[SHEET_SUBJECT_MARKS]
-    ws = wb.create_sheet(SHEET_SUBJECT_MARKS)
-    ws.append(SUBJECT_MARKS_COLS)
-    style_header_row(ws)
-    for _, row in df.iterrows():
-        ws.append([row.get(c,"") for c in SUBJECT_MARKS_COLS])
-        style_data_row(ws, ws.max_row)
-    wb.save(EXCEL_PATH)
+    """Safely saves the Subject_Marks sheet with retry logic."""
+    import time
+    for redo in range(3):
+        try:
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            if SHEET_SUBJECT_MARKS in wb.sheetnames:
+                del wb[SHEET_SUBJECT_MARKS]
+            ws = wb.create_sheet(SHEET_SUBJECT_MARKS)
+            ws.append(SUBJECT_MARKS_COLS)
+            style_header_row(ws)
+            for _, row in df.iterrows():
+                ws.append([row.get(c,"") for c in SUBJECT_MARKS_COLS])
+                style_data_row(ws, ws.max_row)
+            wb.save(EXCEL_PATH)
+            return
+        except Exception as e:
+            print(f"[Faculty] Attempt {redo+1} failed mark save: {e}")
+            if redo == 2: raise e
+            time.sleep(0.5)
 
 @app.get("/subjects/marks/{student_id}")
 def get_student_marks(student_id: str):
@@ -607,45 +641,56 @@ def get_student_marks(student_id: str):
 
 @app.post("/subjects/marks")
 def upsert_subject_marks_api(data: SubjectMarkInput):
-    df = read_subject_marks()
-    # CBT1 (30), CAT1 (60), Assignment (40), CBT2 (20), CAT2 (40). Total 190.
-    total_score = data.cbt1 + data.cat1 + data.assignment + data.cbt2 + data.cat2
-    final_mark = round((total_score * 100) / 190.0, 1)
-    final_mark = min(100.0, final_mark) # Cap at 100
-    
-    new_row = {
-        "student_id": data.student_id, "subject_name": data.subject_name,
-        "cbt1": data.cbt1, "cat1": data.cat1, "assignment": data.assignment,
-        "cbt2": data.cbt2, "cat2": data.cat2, "final_mark": final_mark,
-        "updated_by": data.updated_by
-    }
-    
-    mask = (df["student_id"] == data.student_id) & (df["subject_name"] == data.subject_name)
-    if not df[mask].empty:
-        df.loc[mask, list(new_row.keys())] = list(new_row.values())
-    else:
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+    print(f"[Faculty] Updating marks for {data.student_id}, subject: {data.subject_name}")
+    try:
+        df = read_subject_marks()
+        # CBT1 (30), CAT1 (60), Assignment (40), CBT2 (20), CAT2 (40). Total 190.
+        total_score = data.cbt1 + data.cat1 + data.assignment + data.cbt2 + data.cat2
+        final_mark = round((total_score * 100) / 190.0, 1)
+        final_mark = min(100.0, final_mark) # Cap at 100
         
-    save_subject_marks(df)
-    
-    # Check if student exists to trigger risk re-computation
-    s_df = read_students()
-    all_marks = df[df["student_id"] == data.student_id]
-    if not all_marks.empty:
-        avg_mark = all_marks["final_mark"].mean()
-        if not s_df[s_df["student_id"] == data.student_id].empty:
-            s_row = s_df[s_df["student_id"] == data.student_id].iloc[0].copy()
-            import numpy as np
-            s_row = s_row.replace({np.nan: None})
-            s_dict = s_row.to_dict()
-            s_dict["internal_marks"] = round(avg_mark, 1)
+        new_row = {
+            "student_id": data.student_id, "subject_name": data.subject_name,
+            "cbt1": data.cbt1, "cat1": data.cat1, "assignment": data.assignment,
+            "cbt2": data.cbt2, "cat2": data.cat2, "final_mark": final_mark,
+            "updated_by": data.updated_by
+        }
+        
+        mask = (df["student_id"].astype(str) == str(data.student_id)) & (df["subject_name"] == data.subject_name)
+        if not df[mask].empty:
+            df.loc[mask, list(new_row.keys())] = list(new_row.values())
+        else:
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
             
-            # Use data.updated_by for the student upsert
-            st_in = StudentInput(**{k:v for k,v in s_dict.items() if k in StudentInput.__fields__})
-            st_in.updated_by = data.updated_by
+        save_subject_marks(df)
+        
+        # Cross-update the main student spreadsheet to trigger overall risk re-evaluation
+        s_df = read_students()
+        id_mask = s_df["student_id"].astype(str).str.strip().str.lower() == str(data.student_id).strip().lower()
+        
+        if not s_df[id_mask].empty:
+            # Get latest average performance across ALL subjects for this student
+            all_marks = df[df["student_id"].astype(str) == str(data.student_id)]
+            avg_internal_mark = round(all_marks["final_mark"].mean(), 1)
+            
+            # Map existing student data to StudentInput model safely
+            s_data = s_df[id_mask].iloc[0].to_dict()
+            s_data = {k: (v if pd.notna(v) else "") for k, v in s_data.items()}
+            s_data["internal_marks"] = avg_internal_mark
+            s_data["updated_by"] = data.updated_by
+            
+            # Use only matching fields for the model to prevent validation errors
+            fields = StudentInput.__fields__ if hasattr(StudentInput, "__fields__") else StudentInput.model_fields
+            in_data = {k: v for k, v in s_data.items() if k in fields}
+            
+            st_in = StudentInput(**in_data)
             upsert_student(st_in)
+            print(f"[Faculty] Auto-recalculated risk for Student {data.student_id} based on new marks.")
             
-    return new_row
+        return new_row
+    except Exception as e:
+        print(f"[Faculty] CRITICAL ERROR in upsert_subject_marks_api: {e}")
+        raise HTTPException(500, detail=f"Failed to update marks: {str(e)}")
 
 # ── Dashboard ──
 @app.get("/dashboard")
