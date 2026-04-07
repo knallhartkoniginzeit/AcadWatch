@@ -732,81 +732,98 @@ def get_student(student_id: str):
         raise HTTPException(404,"Student not found")
     return row.replace({float("nan"):None}).iloc[0].to_dict()
 
+def append_daily_log(row_data: dict):
+    """Safely appends a row to the Daily_Log sheet with retry logic for file locks."""
+    import time
+    for redo in range(3):
+        try:
+            wb = openpyxl.load_workbook(EXCEL_PATH)
+            if SHEET_DAILY not in wb.sheetnames:
+                ws = wb.create_sheet(SHEET_DAILY)
+                ws.append(DAILY_COLS)
+                style_header_row(ws)
+            else:
+                ws = wb[SHEET_DAILY]
+            
+            ws.append([row_data.get(c, "") for c in DAILY_COLS])
+            style_data_row(ws, ws.max_row)
+            wb.save(EXCEL_PATH)
+            print(f"[Log] Successfully appended daily entry for {row_data.get('student_id')}")
+            return
+        except Exception as e:
+            print(f"[Log] Attempt {redo+1} failed to save daily log: {e}")
+            time.sleep(0.5)
+
 @app.post("/students")
 def upsert_student(data: StudentInput):
-    df = read_students()
-    
-    # First get ML predictions
-    rf_label, lr_label, knn_label, ensemble_label, agreement_pct, rf_prob, lr_prob, knn_prob = compute_risk_ml(data.dict())
-    
-    # Compute combined final risk using ML probability (e.g. Random Forest prob)
-    label, score, prob = compute_risk(data.dict(), ml_prob=rf_prob)
-    
-    risk_factors = get_risk_factors(data.dict())
-    recommendations = build_recommendations(data.dict(), risk_factors)
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    print(f"[Admin] Upserting student: {data.student_id}")
+    try:
+        df = read_students()
+        
+        # First get ML predictions
+        rf_label, lr_label, knn_label, ensemble_label, agreement_pct, rf_prob, lr_prob, knn_prob = compute_risk_ml(data.dict())
+        
+        # Compute combined final risk using ML probability (e.g. Random Forest prob)
+        label, score, prob = compute_risk(data.dict(), ml_prob=rf_prob)
+        
+        risk_factors = get_risk_factors(data.dict())
+        recommendations = build_recommendations(data.dict(), risk_factors)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # Previous label for change tracking
-    prev_label = None
-    if not df.empty and data.student_id in df["student_id"].values:
-        prev_label = df.loc[df["student_id"]==data.student_id,"risk_label"].values[0]
+        prev_label = None
+        if not df.empty and data.student_id in df["student_id"].values:
+            prev_label = df.loc[df["student_id"]==data.student_id,"risk_label"].values[0]
 
-    new_row = {
-        "student_id": data.student_id, "name": data.name,
-        "section": data.section, "email": data.email,
-        "internal_marks": data.internal_marks, "previous_gpa": data.previous_gpa,
-        "assignment_scores": data.assignment_scores,
-        "attendance_percentage": data.attendance_percentage,
-        "study_hours_per_day": data.study_hours_per_day,
-        "sleep_duration": data.sleep_duration,
-        "mobile_usage_time": data.mobile_usage_time,
-        "stress_level": data.stress_level,
-        "interest_in_subject": data.interest_in_subject,
-        "risk_label": label, "risk_score": score, "risk_probability": prob,
-        "last_updated": now, "updated_by": data.updated_by,
-    }
+        new_row = {
+            "student_id": data.student_id, "name": data.name,
+            "section": data.section, "email": data.email,
+            "internal_marks": data.internal_marks, "previous_gpa": data.previous_gpa,
+            "assignment_scores": data.assignment_scores,
+            "attendance_percentage": data.attendance_percentage,
+            "study_hours_per_day": data.study_hours_per_day,
+            "sleep_duration": data.sleep_duration,
+            "mobile_usage_time": data.mobile_usage_time,
+            "stress_level": data.stress_level,
+            "interest_in_subject": data.interest_in_subject,
+            "risk_label": label, "risk_score": score, "risk_probability": prob,
+            "last_updated": now, "updated_by": data.updated_by,
+        }
 
-    if not df.empty and data.student_id in df["student_id"].values:
-        df.loc[df["student_id"]==data.student_id, list(new_row.keys())] = list(new_row.values())
-    else:
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        if not df.empty and data.student_id in df["student_id"].values:
+            df.loc[df["student_id"]==data.student_id, list(new_row.keys())] = list(new_row.values())
+        else:
+            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
 
-    save_students(df)
+        save_students(df)
 
-    # Daily log
-    append_daily_log({
-        "date": str(date.today()), "student_id": data.student_id, "name": data.name,
-        "attendance_percentage": data.attendance_percentage,
-        "study_hours_per_day": data.study_hours_per_day,
-        "sleep_duration": data.sleep_duration,
-        "mobile_usage_time": data.mobile_usage_time,
-        "stress_level": data.stress_level,
-        "internal_marks": data.internal_marks,
-        "risk_label": label, "risk_score": score,
-        "changed_from": prev_label or "", "updated_by": data.updated_by,
-    })
+        # Mirror entry in daily log for history
+        append_daily_log({
+            "date": str(date.today()), "student_id": data.student_id, "name": data.name,
+            "attendance_percentage": data.attendance_percentage,
+            "study_hours_per_day": data.study_hours_per_day,
+            "sleep_duration": data.sleep_duration,
+            "mobile_usage_time": data.mobile_usage_time,
+            "stress_level": data.stress_level,
+            "internal_marks": data.internal_marks,
+            "risk_label": label, "risk_score": score,
+            "changed_from": prev_label or "", "updated_by": data.updated_by,
+        })
 
-    # Write recommendations if at risk
-    if label == "At Risk":
-        append_recommendations(data.student_id, data.name, recommendations, data.updated_by)
+        if label == "At Risk":
+            append_recommendations(data.student_id, data.name, recommendations, data.updated_by)
 
-    update_dashboard_summary()
+        update_dashboard_summary()
 
-    return {
-        "student_id": data.student_id, "name": data.name,
-        "risk_label": label, "risk_score": score, "risk_probability": prob,
-        "top_risk_factors": risk_factors, "recommendations": recommendations,
-        "changed_from": prev_label,
-        # ML Model Predictions
-        "rf_label":       rf_label,
-        "lr_label":       lr_label,
-        "knn_label":      knn_label,
-        "ensemble_label": ensemble_label,
-        "model_agreement": agreement_pct,
-        "rf_probability":  rf_prob,
-        "lr_probability":  lr_prob,
-        "knn_probability": knn_prob,
-    }
+        return {
+            "student_id": data.student_id, "name": data.name,
+            "risk_label": label, "risk_score": score, "risk_probability": prob,
+            "top_risk_factors": risk_factors, "recommendations": recommendations,
+            "changed_from": prev_label,
+            "rf_label": rf_label, "rf_probability": rf_prob
+        }
+    except Exception as e:
+        print(f"[Admin] CRITICAL ERROR in upsert_student: {e}")
+        raise HTTPException(500, detail=f"Data update failed: {str(e)}")
 
 # ── Recommendations ──
 @app.get("/recommendations")
@@ -857,35 +874,39 @@ def export_daily():
 def excel_path():
     return {"path": os.path.abspath(EXCEL_PATH)}
 
-# ── Daily Habit Log (Student) ──
 @app.post("/daily-log")
 def add_daily_habit(data: DailyHabitInput):
-    df = read_students()
-    student_row = df[df["student_id"] == data.student_id]
-    if student_row.empty:
-        raise HTTPException(404, "Student not found")
-    s = student_row.iloc[0]
-    name = str(s.get("name", ""))
-    today = str(date.today())
-    row_data = {
-        "date": today, "student_id": data.student_id, "name": name,
-        "attendance_percentage": s.get("attendance_percentage", 0),
-        "study_hours_per_day": s.get("study_hours_per_day", 0),
-        "sleep_duration": data.sleep_hours,
-        "mobile_usage_time": s.get("mobile_usage_time", 0),
-        "stress_level": s.get("stress_level", 0),
-        "internal_marks": s.get("internal_marks", 0),
-        "mood": data.mood,
-        "risk_label": s.get("risk_label", ""),
-        "risk_score": s.get("risk_score", 0),
-        "changed_from": "", "updated_by": "student",
-    }
-    wb = openpyxl.load_workbook(EXCEL_PATH)
-    ws = wb[SHEET_DAILY]
-    ws.append([row_data.get(c, "") for c in DAILY_COLS])
-    style_data_row(ws, ws.max_row)
-    wb.save(EXCEL_PATH)
-    return {"status": "logged", "date": today, "sleep_hours": data.sleep_hours, "mood": data.mood}
+    print(f"[Student] Logging habit for: {data.student_id}")
+    try:
+        df = read_students()
+        student_row = df[df["student_id"] == data.student_id]
+        if student_row.empty:
+            print(f"[Student] ERROR: Student {data.student_id} not found")
+            raise HTTPException(404, "Student not found in database. Please contact Admin.")
+        
+        s = student_row.iloc[0]
+        name = str(s.get("name", "Student"))
+        today = str(date.today())
+        
+        row_data = {
+            "date": today, "student_id": data.student_id, "name": name,
+            "attendance_percentage": s.get("attendance_percentage", 0),
+            "study_hours_per_day": s.get("study_hours_per_day", 0),
+            "sleep_duration": data.sleep_hours,
+            "mobile_usage_time": s.get("mobile_usage_time", 0),
+            "stress_level": s.get("stress_level", 0),
+            "internal_marks": s.get("internal_marks", 0),
+            "mood": data.mood,
+            "risk_label": s.get("risk_label", ""),
+            "risk_score": s.get("risk_score", 0),
+            "changed_from": "", "updated_by": "student",
+        }
+        
+        append_daily_log(row_data)
+        return {"status": "logged", "date": today, "sleep_hours": data.sleep_hours, "mood": data.mood}
+    except Exception as e:
+        print(f"[Student] CRITICAL ERROR in add_daily_habit: {e}")
+        raise HTTPException(500, detail=f"Logging failed: {str(e)}")
 
 @app.get("/daily-log/{student_id}")
 def get_daily_habit(student_id: str, days: int = 30):

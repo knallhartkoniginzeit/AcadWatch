@@ -48,20 +48,32 @@ export default function HabitTracker({ user }) {
   useEffect(() => { fetchLogs(); }, [user]);
 
   const handleSubmit = async () => {
-    if (!user?.student_id) return;
+    if (!user?.student_id) {
+      setError("Session expired. Please log in again.");
+      return;
+    }
     setSubmitting(true);
     setError('');
+    setSuccess(false);
     try {
       const res = await fetch(`${API}/daily-log`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ student_id: user.student_id, sleep_hours: sleepHours, mood })
       });
-      if (!res.ok) throw new Error('Failed to log habits');
+      
+      const result = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(result.detail || 'Failed to log habits');
+      }
+      
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 3500);
+      // Auto-hide success message after 3 seconds
+      setTimeout(() => setSuccess(false), 3000);
       await fetchLogs();
     } catch (e) {
+      console.error("Habit log error:", e);
       setError(e.message);
     } finally {
       setSubmitting(false);
