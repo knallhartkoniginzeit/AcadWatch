@@ -158,47 +158,55 @@ for i in range(1, 69):
     DEMO_USERS.append({"username": uname, "password": sid, "role": "Student", "assigned_subjects": "", "student_id": sid})
 
 def ensure_default_users():
-    """On every startup, make sure all demo users exist in the Users sheet with current passwords."""
-    print(f"[Auth] Initializing user database at {EXCEL_PATH}...")
+    """On every startup, make sure all demo users exist, have correct roles and student_ids, and are unique."""
+    print(f"[Auth] Synchronizing user database at {EXCEL_PATH}...")
     try:
-        users_df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_USERS, dtype={"username": str, "password": str})
+        users_df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_USERS, dtype={"username": str, "password": str, "student_id": str})
     except Exception as e:
         print(f"[Auth] Could not read Users sheet ({e}), creating fresh data.")
         users_df = pd.DataFrame(columns=USER_COLS)
 
-    changed = False
-    
-    # Normalize existing usernames for comparison
+    # Normalize existing data
     if not users_df.empty:
-        users_df["username_lower"] = users_df["username"].astype(str).str.strip().str.lower()
+        # Clean current entries: strip all, lowercase username
+        for col in USER_COLS:
+            users_df[col] = users_df[col].astype(str).replace("nan", "").str.strip()
+        users_df["username_lower"] = users_df["username"].str.lower()
     else:
         users_df["username_lower"] = []
 
+    changed = False
+    
     for demo in DEMO_USERS:
-        d_name_lower = str(demo["username"]).strip().lower()
+        d_uname_lower = str(demo["username"]).strip().lower()
+        mask = users_df["username_lower"] == d_uname_lower
         
-        # Check if user exists (case-insensitive)
-        mask = users_df["username_lower"] == d_name_lower
         if not mask.any():
-            print(f"[Auth] Creating missing demo user: {demo['username']}")
+            print(f"[Auth] Adding missing demo account: {demo['username']}")
             users_df = pd.concat([users_df, pd.DataFrame([demo])], ignore_index=True)
-            # Re-update normalization after concat
-            users_df["username_lower"] = users_df["username"].astype(str).str.strip().str.lower()
+            users_df["username_lower"] = users_df["username"].astype(str).str.lower()
             changed = True
         else:
-            # Refresh password and student_id/role if mismatch
-            curr_pass = str(users_df.loc[mask, "password"].values[0]).strip()
-            if curr_pass != str(demo["password"]).strip():
-                print(f"[Auth] Updating password for: {demo['username']}")
-                users_df.loc[mask, "password"] = str(demo["password"]).strip()
+            # User exists - enforce correct Role, StudentID, and Password
+            idx = users_df[mask].index[0]
+            if users_df.at[idx, "password"] != str(demo["password"]).strip():
+                users_df.at[idx, "password"] = str(demo["password"]).strip()
                 changed = True
-            
-            # Special case for student1 -> student01 naming migration if any legacy data exists
-            if demo["username"] == "student1@school.edu": # Deprecated but handling for safety
-                 pass 
+            if users_df.at[idx, "role"] != demo["role"]:
+                users_df.at[idx, "role"] = demo["role"]
+                changed = True
+            if users_df.at[idx, "student_id"] != str(demo["student_id"]).strip():
+                users_df.at[idx, "student_id"] = str(demo["student_id"]).strip()
+                changed = True
+
+    # Critical Step: Remove any duplicates (case-insensitive username)
+    if users_df["username"].str.lower().duplicated().any():
+        print(f"[Auth] Cleanup: Removing {users_df['username'].str.lower().duplicated().sum()} duplicate entries.")
+        users_df = users_df.drop_duplicates(subset="username_lower", keep="last")
+        changed = True
 
     if changed:
-        print("[Auth] Saving refreshed credentials to Excel...")
+        print("[Auth] Saving 100% synchronized credentials to Excel...")
         wb = openpyxl.load_workbook(EXCEL_PATH)
         if SHEET_USERS in wb.sheetnames:
             del wb[SHEET_USERS]
@@ -207,16 +215,14 @@ def ensure_default_users():
         style_header_row(ws_u)
         
         for _, row in users_df.iterrows():
-            # Only save the standard columns, drop our temp 'username_lower'
             ws_u.append([str(row.get(c, "")).strip() for c in USER_COLS])
             style_data_row(ws_u, ws_u.max_row)
             
         wb.save(EXCEL_PATH)
-        print(f"[Auth] Successfully refreshed {len(DEMO_USERS)} accounts.")
+        print(f"[Auth] Synchronization complete. {len(users_df)} clean accounts verified.")
     else:
-        print("[Auth] All demo credentials up to date.")
+        print("[Auth] Global user synchronization verified: 100% match.")
     
-    # Cleanup excel memory if needed
     del users_df
 
 ensure_default_users()
@@ -879,10 +885,15 @@ def add_daily_habit(data: DailyHabitInput):
     print(f"[Student] Logging habit for: {data.student_id}")
     try:
         df = read_students()
-        student_row = df[df["student_id"] == data.student_id]
+        # Robust ID lookup: trim, stringify, and lowercase both sides
+        target_id = str(data.student_id).strip().lower()
+        id_series = df["student_id"].astype(str).str.strip().str.lower()
+        
+        student_row = df[id_series == target_id]
+        
         if student_row.empty:
-            print(f"[Student] ERROR: Student {data.student_id} not found")
-            raise HTTPException(404, "Student not found in database. Please contact Admin.")
+            print(f"[Student] ERROR: ID '{target_id}' not found in students sheet. Count: {len(df)}")
+            raise HTTPException(404, f"Student ID '{target_id}' not found. Please log in again.")
         
         s = student_row.iloc[0]
         name = str(s.get("name", "Student"))
