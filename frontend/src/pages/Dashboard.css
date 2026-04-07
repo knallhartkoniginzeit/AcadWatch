@@ -128,12 +128,51 @@
 }
 
 /* Rec snapshot */
-.rec-snapshot {}
 .rec-hint { font-size:13px; color:var(--text2); line-height:1.6; }
+
+/* Faculty at-risk alert banner */
+.faculty-alert-banner {
+  display:flex; align-items:center; gap:14px;
+  background:#fff5f5; border:1.5px solid #fca5a5;
+  border-left:4px solid var(--danger);
+  border-radius:var(--radius); padding:14px 18px;
+  animation:fadeInUp 0.3s ease both;
+}
+.fab-icon { font-size:22px; flex-shrink:0; color:var(--danger); }
+.fab-body { flex:1; font-size:13px; color:var(--text1); }
+.fab-body strong { display:block; margin-bottom:3px; }
+.fab-names { font-size:12px; color:var(--danger); font-weight:600; }
+
+/* Subject Stats Grid (Admin) */
+.substat-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
+  gap:12px;
+}
+.substat-card {
+  background:var(--surface2); border:1px solid var(--border);
+  border-radius:12px; padding:14px 16px;
+  transition:transform .15s, box-shadow .15s;
+}
+.substat-card:hover { transform:translateY(-2px); box-shadow:0 4px 16px rgba(0,0,0,0.08); }
+.substat-subject { font-size:13px; font-weight:700; color:var(--navy); margin-bottom:10px; }
+.substat-bar-wrap {
+  display:flex; align-items:center; gap:8px; margin-bottom:8px;
+}
+.substat-bar-bg { flex:1; height:8px; background:var(--border); border-radius:4px; overflow:hidden; }
+.substat-bar-fill { height:100%; border-radius:4px; transition:width .6s ease; }
+.substat-avg { font-size:14px; font-weight:800; color:var(--navy); min-width:30px; text-align:right; }
+.substat-meta { display:flex; justify-content:space-between; font-size:11px; }
+.substat-danger { color:var(--danger); font-weight:600; }
+.substat-pass   { color:var(--success); font-weight:600; }
 
 @media (max-width:1100px) {
   .kpi-row { grid-template-columns:repeat(3,1fr); }
   .dash-grid { grid-template-columns:1fr; }
   .table-head, .table-row-item { grid-template-columns:2fr 1fr 1fr 1fr; }
   .table-head span:nth-child(2), .table-row-item > *:nth-child(2) { display:none; }
+}
+@media (max-width:640px) {
+  .kpi-row { grid-template-columns:repeat(2,1fr); }
+  .faculty-alert-banner { flex-wrap:wrap; }
 }

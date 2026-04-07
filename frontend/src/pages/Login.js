@@ -3,6 +3,12 @@ import './Login.css';
 
 const API = process.env.REACT_APP_API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:8000' : '');
 
+const DEMO_CREDS = {
+  admin:   { username: 'admin@school.edu',   password: 'admin123',   hint: 'Full system access, analytics dashboard' },
+  faculty: { username: 'tla@school.edu',     password: 'TLA',        hint: 'Access for TLA subject. (Use ml@school.edu / ML for ML)' },
+  student: { username: 'student01@school.edu',password: 'student01', hint: 'View marks, track habits, see suggestions (up to student68)' },
+};
+
 export default function Login({ onLogin }) {
   const [roleMode, setRoleMode] = useState('student');
   const [username, setUsername] = useState('');
@@ -13,36 +19,20 @@ export default function Login({ onLogin }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
-    
     if (!username.trim() || !password.trim()) {
       setError('Please enter both username and password.');
       return;
     }
-
     setLoading(true);
     try {
       const res = await fetch(`${API}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: roleMode,
-          username: username.trim(),
-          password: password.trim()
-        })
+        body: JSON.stringify({ role: roleMode, username: username.trim(), password: password.trim() })
       });
-
       const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.detail || 'Login failed');
-      }
-
-      // Success
-      if (roleMode === 'student') {
-        onLogin({ role: 'student', student_id: data.student_id });
-      } else {
-        onLogin({ role: 'teacher', username: username });
-      }
+      if (!res.ok) throw new Error(data.detail || 'Login failed');
+      onLogin(data);
     } catch (err) {
       setError(err.message || 'Could not connect to server.');
     } finally {
@@ -57,49 +47,85 @@ export default function Login({ onLogin }) {
     setPassword('');
   };
 
+  const fillDemo = () => {
+    const cred = DEMO_CREDS[roleMode];
+    setUsername(cred.username);
+    setPassword(cred.password);
+  };
+
+  const cred = DEMO_CREDS[roleMode];
+
+  const roleIcons = { admin: '🛡️', faculty: '👩‍🏫', student: '🎓' };
+  const roleColors = { admin: '#6366f1', faculty: '#0ea5e9', student: '#22c55e' };
+
   return (
     <div className="login-page fade-in">
+      <div className="login-bg-decor">
+        <div className="decor-circle decor-1" />
+        <div className="decor-circle decor-2" />
+        <div className="decor-circle decor-3" />
+      </div>
+
       <div className="login-box card">
-        <div className="login-header">
-          <div className="brand-logo" style={{justifyContent: 'center', marginBottom: 20}}>
-            <span className="brand-icon">◈</span>
-            <div style={{textAlign: 'left'}}>
-              <div className="brand-name" style={{color: 'var(--navy)'}}>AcadWatch</div>
-              <div className="brand-tag">Academic Intelligence</div>
-            </div>
+        {/* Brand */}
+        <div className="login-brand">
+          <div className="login-brand-icon">◈</div>
+          <div>
+            <div className="login-brand-name">AcadWatch</div>
+            <div className="login-brand-tag">Student Performance Intelligence</div>
           </div>
-          <h2 className="login-title">Sign In</h2>
         </div>
 
+        <h2 className="login-title">Welcome back</h2>
+        <p className="login-subtitle">Sign in to your portal to continue</p>
+
+        {/* Role tabs */}
         <div className="login-tabs">
-          <button 
-            className={`login-tab ${roleMode === 'student' ? 'active' : ''}`}
-            onClick={() => switchRole('student')}
-            type="button"
-          >
-            🎓 Student
-          </button>
-          <button 
-            className={`login-tab ${roleMode === 'teacher' ? 'active' : ''}`}
-            onClick={() => switchRole('teacher')}
-            type="button"
-          >
-            👩‍🏫 Teacher
-          </button>
+          {['admin', 'faculty', 'student'].map(r => (
+            <button
+              key={r}
+              id={`role-tab-${r}`}
+              className={`login-tab ${roleMode === r ? 'active' : ''}`}
+              style={roleMode === r ? { borderColor: roleColors[r], color: roleColors[r] } : {}}
+              onClick={() => switchRole(r)}
+              type="button"
+            >
+              {roleIcons[r]} {r.charAt(0).toUpperCase() + r.slice(1)}
+            </button>
+          ))}
         </div>
 
-        {error && <div className="error-box" style={{marginBottom: 20}}>⚠ {error}</div>}
+        {/* Demo credentials hint */}
+        <div className="demo-hint-box" style={{ borderColor: roleColors[roleMode] + '60', background: roleColors[roleMode] + '10' }}>
+          <div className="demo-hint-top">
+            <span className="demo-label" style={{ color: roleColors[roleMode] }}>Demo Credentials</span>
+            <button
+              type="button"
+              className="demo-fill-btn"
+              id="fill-demo-btn"
+              onClick={fillDemo}
+              style={{ color: roleColors[roleMode] }}
+            >
+              Auto-fill →
+            </button>
+          </div>
+          <div className="demo-cred-row"><span className="demo-key">Username:</span><code className="demo-val">{cred.username}</code></div>
+          <div className="demo-cred-row"><span className="demo-key">Password:</span><code className="demo-val">{cred.password}</code></div>
+          <div className="demo-hint-desc">{cred.hint}</div>
+        </div>
 
-        <form className="login-form fade-in-1" onSubmit={handleLogin}>
-          
+        {error && <div className="error-box" style={{ marginBottom: 16 }}>⚠ {error}</div>}
+
+        <form className="login-form" onSubmit={handleLogin}>
           <div className="input-group">
             <label className="input-label">
-              {roleMode === 'student' ? 'Student ID' : 'Username'}
+              {roleMode === 'student' ? 'Student Email / ID' : 'Email Address'}
             </label>
-            <input 
-              type="text" 
-              className="input-field" 
-              placeholder={roleMode === 'student' ? "e.g. CS21001" : "admin"} 
+            <input
+              id="login-username"
+              type="text"
+              className="input-field"
+              placeholder={cred.username}
               value={username}
               onChange={e => setUsername(e.target.value)}
               disabled={loading}
@@ -109,31 +135,31 @@ export default function Login({ onLogin }) {
 
           <div className="input-group">
             <label className="input-label">Password</label>
-            <input 
-              type="password" 
-              className="input-field" 
-              placeholder="••••••••" 
+            <input
+              id="login-password"
+              type="password"
+              className="input-field"
+              placeholder="••••••••"
               value={password}
               onChange={e => setPassword(e.target.value)}
               disabled={loading}
             />
-            {roleMode === 'student' && (
-              <div style={{fontSize: 11, color: 'var(--text2)', marginTop: 4}}>Demo Password: student123</div>
-            )}
-            {roleMode === 'teacher' && (
-              <div style={{fontSize: 11, color: 'var(--text2)', marginTop: 4}}>Demo: admin / admin123</div>
-            )}
           </div>
 
-          <button 
-            className="btn btn-primary login-btn" 
-            type="submit" 
+          <button
+            id="login-submit-btn"
+            className="btn btn-primary login-btn"
+            type="submit"
             disabled={loading || !username.trim() || !password.trim()}
+            style={{ background: roleColors[roleMode] }}
           >
-            {loading ? 'Authenticating...' : 'Sign In'}
+            {loading ? '⏳ Authenticating...' : `Sign in as ${roleMode.charAt(0).toUpperCase() + roleMode.slice(1)} →`}
           </button>
-          
         </form>
+
+        <div className="login-footer">
+          Welcome to AcadWatch V2
+        </div>
       </div>
     </div>
   );

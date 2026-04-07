@@ -21,10 +21,17 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 EXCEL_PATH = os.environ.get("EXCEL_PATH", "acadwatch_data.xlsx")
 
 
-SHEET_STUDENTS  = "Students"
-SHEET_DAILY     = "Daily_Log"
-SHEET_RECS      = "Recommendations"
-SHEET_DASHBOARD = "Dashboard_Summary"
+SHEET_USERS         = "Users"
+SHEET_STUDENTS      = "Students"
+SHEET_SUBJECT_MARKS = "Subject_Marks"
+SHEET_DAILY         = "Daily_Log"
+SHEET_RECS          = "Recommendations"
+SHEET_DASHBOARD     = "Dashboard_Summary"
+
+SUBJECTS_LIST = ["TLA", "ML", "OS", "DE", "DPCO", "ML Lab", "OS Lab", "PDL", "SS", "CSBL"]
+
+USER_COLS = ["username", "password", "role", "assigned_subjects", "student_id"]
+SUBJECT_MARKS_COLS = ["student_id", "subject_name", "cbt1", "cat1", "assignment", "cbt2", "cat2", "final_mark", "updated_by"]
 
 STUDENT_COLS = [
     "student_id","name","section","email",
@@ -38,6 +45,7 @@ DAILY_COLS = [
     "date","student_id","name",
     "attendance_percentage","study_hours_per_day","sleep_duration",
     "mobile_usage_time","stress_level","internal_marks",
+    "mood",
     "risk_label","risk_score","changed_from","updated_by"
 ]
 REC_COLS = [
@@ -83,6 +91,16 @@ def init_excel():
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
+    # Users sheet
+    ws_u = wb.create_sheet(SHEET_USERS)
+    ws_u.append(USER_COLS)
+    style_header_row(ws_u)
+
+    # Subject Marks sheet
+    ws_sm = wb.create_sheet(SHEET_SUBJECT_MARKS)
+    ws_sm.append(SUBJECT_MARKS_COLS)
+    style_header_row(ws_sm)
+
     # Students sheet
     ws_s = wb.create_sheet(SHEET_STUDENTS)
     ws_s.append(STUDENT_COLS)
@@ -122,47 +140,117 @@ def init_excel():
 
 init_excel()
 
-# ─── Risk Engine ──────────────────────────────────────────────────────────────
-WEIGHTS = {
-    "internal_marks":0.25,"previous_gpa":0.20,"assignment_scores":0.15,
-    "attendance_percentage":0.20,"study_hours_per_day":0.08,
-    "sleep_duration":0.04,"mobile_usage_time":-0.04,
-    "stress_level":-0.02,"interest_in_subject":0.02,
-}
+# ─── Ensure Demo Credentials Exist ───────────────────────────────────────────
+DEMO_USERS = [
+    {"username": "admin@school.edu",   "password": "admin123",   "role": "Admin",   "assigned_subjects": "", "student_id": ""},
+]
 
-def compute_risk(d: dict):
-    norm = {
-        "internal_marks":       d["internal_marks"]/100,
-        "previous_gpa":         d["previous_gpa"]/10,
-        "assignment_scores":    d["assignment_scores"]/100,
-        "attendance_percentage":d["attendance_percentage"]/100,
-        "study_hours_per_day":  min(d["study_hours_per_day"]/8,1.0),
-        "sleep_duration":       min(d["sleep_duration"]/8,1.0),
-        "mobile_usage_time":    d["mobile_usage_time"]/16,
-        "stress_level":         d["stress_level"]/10,
-        "interest_in_subject":  d["interest_in_subject"]/10,
+for sub in SUBJECTS_LIST:
+    uname = f"{sub.replace(' ', '')}@school.edu"
+    pwd = sub.replace(' ', '')
+    DEMO_USERS.append({"username": uname, "password": pwd, "role": "Faculty", "assigned_subjects": sub, "student_id": ""})
+
+# student01@school.edu student_id will be patched after seeding; works as empty initially
+DEMO_USERS.append({"username": "student01@school.edu","password": "student01", "role": "Student", "assigned_subjects": "", "student_id": "student01"})
+
+def ensure_default_users():
+    """On every startup, make sure new-format demo users exist in the Users sheet."""
+    try:
+        users_df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_USERS, dtype={"username": str})
+    except Exception:
+        users_df = pd.DataFrame(columns=USER_COLS)
+
+    changed = False
+    for demo in DEMO_USERS:
+        if demo["username"] not in users_df["username"].values:
+            users_df = pd.concat([users_df, pd.DataFrame([demo])], ignore_index=True)
+            changed = True
+        else:
+            # Always refresh password so it matches the current DEMO_USERS list
+            mask = users_df["username"] == demo["username"]
+            if str(users_df.loc[mask, "password"].values[0]) != demo["password"]:
+                users_df.loc[mask, "password"] = demo["password"]
+                changed = True
+
+    # Patch student1@school.edu → first available Student if student_id is empty
+    try:
+        students_df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_STUDENTS, dtype={"student_id": str})
+        if not students_df.empty:
+            first_id = str(students_df.iloc[0]["student_id"])
+            mask_s = (users_df["username"] == "student1@school.edu") & (users_df["student_id"].astype(str).str.strip() == "")
+            if mask_s.any():
+                users_df.loc[mask_s, "student_id"] = first_id
+                changed = True
+    except Exception:
+        pass
+
+    if changed:
+        wb = openpyxl.load_workbook(EXCEL_PATH)
+        if SHEET_USERS in wb.sheetnames:
+            del wb[SHEET_USERS]
+        ws_u = wb.create_sheet(SHEET_USERS)
+        ws_u.append(USER_COLS)
+        style_header_row(ws_u)
+        for _, row in users_df.iterrows():
+            ws_u.append([row.get(c, "") for c in USER_COLS])
+            style_data_row(ws_u, ws_u.max_row)
+        wb.save(EXCEL_PATH)
+        print(f"[Auth] Demo credentials refreshed in Users sheet ({len(DEMO_USERS)} demo accounts)")
+
+ensure_default_users()
+
+
+def compute_risk_components(d: dict):
+    return {
+        "Academic Risk": (max(0, 100 - d["internal_marks"]), 0.30),
+        "Attendance Risk": (max(0, 100 - d["attendance_percentage"]), 0.25),
+        "Study Hours Risk": (0 if d["study_hours_per_day"] >= 5 else (5 - d["study_hours_per_day"]) * 20, 0.15),
+        "Sleep Risk": (0 if d["sleep_duration"] >= 7 else (7 - d["sleep_duration"]) * 15, 0.10),
+        "Mobile Usage Risk": (0 if d["mobile_usage_time"] <= 3 else (d["mobile_usage_time"] - 3) * 10, 0.10),
+        "Stress Risk": (d["stress_level"] * 10, 0.10),
     }
-    score = sum(norm[k]*w for k,w in WEIGHTS.items())
-    score = max(0.0, min(1.0, (score+0.1)/0.7))
-    prob  = round(1-score, 3)
-    label = "At Risk" if prob >= 0.35 else "Pass"
-    return label, round(score*100,1), prob
+
+def compute_risk(d: dict, ml_prob: float = None):
+    comps = compute_risk_components(d)
+    rule_score = sum(val * weight for val, weight in comps.values())
+    
+    # Combine with ML logic if available
+    if ml_prob is not None:
+        final_score = (rule_score + (ml_prob * 100)) / 2.0
+    else:
+        final_score = rule_score
+        
+    final_score = round(final_score, 1)
+    
+    if final_score <= 10: label = "No Risk"
+    elif final_score <= 25: label = "Below Risk"
+    elif final_score <= 40: label = "Good Performance"
+    elif final_score <= 60: label = "Can Improve"
+    elif final_score <= 70: label = "Need Assistance"
+    elif final_score <= 80: label = "At Risk"
+    elif final_score <= 90: label = "High Risk"
+    else: label = "Extremely High Risk"
+    
+    prob = round(final_score / 100.0, 3)
+    return label, final_score, prob
 
 def get_risk_factors(d):
-    issues = []
-    if d["internal_marks"] < 50: issues.append({"factor":"Internal Marks","value":f"{d['internal_marks']}/100","severity":"high"})
-    elif d["internal_marks"] < 65: issues.append({"factor":"Internal Marks","value":f"{d['internal_marks']}/100","severity":"medium"})
-    if d["attendance_percentage"] < 75: issues.append({"factor":"Attendance","value":f"{d['attendance_percentage']}%","severity":"high"})
-    elif d["attendance_percentage"] < 85: issues.append({"factor":"Attendance","value":f"{d['attendance_percentage']}%","severity":"medium"})
-    if d["previous_gpa"] < 5.0: issues.append({"factor":"Previous GPA","value":f"{d['previous_gpa']}/10","severity":"high"})
-    elif d["previous_gpa"] < 6.5: issues.append({"factor":"Previous GPA","value":f"{d['previous_gpa']}/10","severity":"medium"})
-    if d["assignment_scores"] < 50: issues.append({"factor":"Assignment Scores","value":f"{d['assignment_scores']}/100","severity":"high"})
-    if d["study_hours_per_day"] < 2: issues.append({"factor":"Study Hours","value":f"{d['study_hours_per_day']} hrs/day","severity":"medium"})
-    if d["mobile_usage_time"] > 6: issues.append({"factor":"Mobile Usage","value":f"{d['mobile_usage_time']} hrs/day","severity":"medium"})
-    if d["sleep_duration"] < 6: issues.append({"factor":"Sleep","value":f"{d['sleep_duration']} hrs/night","severity":"medium"})
-    if d["stress_level"] >= 8: issues.append({"factor":"Stress Level","value":f"{d['stress_level']}/10","severity":"high"})
-    issues.sort(key=lambda x:{"high":0,"medium":1}[x["severity"]])
-    return issues[:5]
+    comps = compute_risk_components(d)
+    # Calculate absolute contributions
+    contributions = []
+    for name, (val, weight) in comps.items():
+        contrib = val * weight
+        if contrib > 0:
+            sev = "high" if val >= 60 else ("medium" if val >= 30 else "low")
+            raw_val = d.get(name.lower().split(" ")[0] + "_percentage", d.get("internal_marks", 0)) if name == "Academic Risk" else val
+            contributions.append({"factor": name, "value": f"Risk Score: {round(contrib,1)}", "severity": sev, "contrib": contrib})
+            
+    contributions.sort(key=lambda x: x["contrib"], reverse=True)
+    
+    # Return top 3 factors
+    for c in contributions:
+        del c["contrib"]
+    return contributions[:3]
 
 def build_recommendations(d, risk_factors):
     recs = []
@@ -249,7 +337,7 @@ def _make_feature_vector(d: dict):
 # Build training labels using the rule-based engine, then train models
 _X_train = np.array(ML_TRAIN_RAW, dtype=float)
 _y_train = np.array(
-    [1 if compute_risk(_raw_to_dict(r))[0] == "At Risk" else 0 for r in ML_TRAIN_RAW]
+    [1 if compute_risk(_raw_to_dict(r))[1] >= 61 else 0 for r in ML_TRAIN_RAW]
 )
 
 _scaler = StandardScaler()
@@ -320,6 +408,21 @@ class LoginRequest(BaseModel):
     role: str
     username: str
     password: str
+
+class SubjectMarkInput(BaseModel):
+    student_id: str
+    subject_name: str
+    cbt1: float
+    cat1: float
+    assignment: float
+    cbt2: float
+    cat2: float
+    updated_by: Optional[str] = "faculty"
+
+class DailyHabitInput(BaseModel):
+    student_id: str
+    sleep_hours: float   # 4–12 hours
+    mood: int            # 1–5 scale
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 def read_students() -> pd.DataFrame:
@@ -420,19 +523,101 @@ def update_dashboard_summary():
 
 @app.post("/login")
 def login(req: LoginRequest):
-    if req.role == "teacher":
-        if req.username == "admin" and req.password == "admin123":
-            return {"status": "success", "role": "teacher"}
-        raise HTTPException(status_code=401, detail="Invalid teacher credentials")
-    
-    elif req.role == "student":
-        df = read_students()
-        if req.username in df["student_id"].values:
-            if req.password == "student123":
-                return {"status": "success", "role": "student", "student_id": req.username}
-        raise HTTPException(status_code=401, detail="Invalid student credentials")
+    try:
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_USERS, dtype={"username":str})
+    except:
+        df = pd.DataFrame(columns=USER_COLS)
         
-    raise HTTPException(status_code=400, detail="Invalid role specified")
+    user = df[(df["username"].astype(str).str.lower() == req.username.lower()) & (df["role"].astype(str).str.lower() == req.role.lower())]
+    if user.empty:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+    user = user.iloc[0]
+    if str(user["password"]) != req.password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+    resp = {"status": "success", "role": str(user["role"]).lower(), "username": req.username}
+    if resp["role"] == "faculty":
+        subs = str(user["assigned_subjects"]).split(",") if pd.notna(user["assigned_subjects"]) else []
+        resp["assigned_subjects"] = [s.strip() for s in subs if s.strip()]
+    elif resp["role"] == "student":
+        resp["student_id"] = str(user["student_id"])
+        
+    return resp
+
+def read_subject_marks() -> pd.DataFrame:
+    try:
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_SUBJECT_MARKS, dtype={"student_id":str})
+        return df
+    except:
+        return pd.DataFrame(columns=SUBJECT_MARKS_COLS)
+
+def save_subject_marks(df: pd.DataFrame):
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+    if SHEET_SUBJECT_MARKS in wb.sheetnames:
+        del wb[SHEET_SUBJECT_MARKS]
+    ws = wb.create_sheet(SHEET_SUBJECT_MARKS)
+    ws.append(SUBJECT_MARKS_COLS)
+    style_header_row(ws)
+    for _, row in df.iterrows():
+        ws.append([row.get(c,"") for c in SUBJECT_MARKS_COLS])
+        style_data_row(ws, ws.max_row)
+    wb.save(EXCEL_PATH)
+
+@app.get("/subjects/marks/{student_id}")
+def get_student_marks(student_id: str):
+    df = read_subject_marks()
+    marks = df[df["student_id"] == student_id].to_dict("records")
+    existing_subs = {m["subject_name"]: m for m in marks}
+    result = []
+    for sub in SUBJECTS_LIST:
+        if sub in existing_subs:
+            result.append(existing_subs[sub])
+        else:
+            result.append({"student_id": student_id, "subject_name": sub, "cbt1":0, "cat1":0, "assignment":0, "cbt2":0, "cat2":0, "final_mark":0})
+    return result
+
+@app.post("/subjects/marks")
+def upsert_subject_marks_api(data: SubjectMarkInput):
+    df = read_subject_marks()
+    # CBT1 (30), CAT1 (60), Assignment (40), CBT2 (20), CAT2 (40). Total 190.
+    total_score = data.cbt1 + data.cat1 + data.assignment + data.cbt2 + data.cat2
+    final_mark = round((total_score * 100) / 190.0, 1)
+    final_mark = min(100.0, final_mark) # Cap at 100
+    
+    new_row = {
+        "student_id": data.student_id, "subject_name": data.subject_name,
+        "cbt1": data.cbt1, "cat1": data.cat1, "assignment": data.assignment,
+        "cbt2": data.cbt2, "cat2": data.cat2, "final_mark": final_mark,
+        "updated_by": data.updated_by
+    }
+    
+    mask = (df["student_id"] == data.student_id) & (df["subject_name"] == data.subject_name)
+    if not df[mask].empty:
+        df.loc[mask, list(new_row.keys())] = list(new_row.values())
+    else:
+        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
+        
+    save_subject_marks(df)
+    
+    # Check if student exists to trigger risk re-computation
+    s_df = read_students()
+    all_marks = df[df["student_id"] == data.student_id]
+    if not all_marks.empty:
+        avg_mark = all_marks["final_mark"].mean()
+        if not s_df[s_df["student_id"] == data.student_id].empty:
+            s_row = s_df[s_df["student_id"] == data.student_id].iloc[0].copy()
+            import numpy as np
+            s_row = s_row.replace({np.nan: None})
+            s_dict = s_row.to_dict()
+            s_dict["internal_marks"] = round(avg_mark, 1)
+            
+            # Use data.updated_by for the student upsert
+            st_in = StudentInput(**{k:v for k,v in s_dict.items() if k in StudentInput.__fields__})
+            st_in.updated_by = data.updated_by
+            upsert_student(st_in)
+            
+    return new_row
 
 # ── Dashboard ──
 @app.get("/dashboard")
@@ -528,7 +713,13 @@ def get_student(student_id: str):
 @app.post("/students")
 def upsert_student(data: StudentInput):
     df = read_students()
-    label, score, prob = compute_risk(data.dict())
+    
+    # First get ML predictions
+    rf_label, lr_label, knn_label, ensemble_label, agreement_pct, rf_prob, lr_prob, knn_prob = compute_risk_ml(data.dict())
+    
+    # Compute combined final risk using ML probability (e.g. Random Forest prob)
+    label, score, prob = compute_risk(data.dict(), ml_prob=rf_prob)
+    
     risk_factors = get_risk_factors(data.dict())
     recommendations = build_recommendations(data.dict(), risk_factors)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -578,8 +769,6 @@ def upsert_student(data: StudentInput):
         append_recommendations(data.student_id, data.name, recommendations, data.updated_by)
 
     update_dashboard_summary()
-
-    rf_label, lr_label, knn_label, ensemble_label, agreement_pct, rf_prob, lr_prob, knn_prob = compute_risk_ml(data.dict())
 
     return {
         "student_id": data.student_id, "name": data.name,
@@ -646,6 +835,128 @@ def export_daily():
 def excel_path():
     return {"path": os.path.abspath(EXCEL_PATH)}
 
+# ── Daily Habit Log (Student) ──
+@app.post("/daily-log")
+def add_daily_habit(data: DailyHabitInput):
+    df = read_students()
+    student_row = df[df["student_id"] == data.student_id]
+    if student_row.empty:
+        raise HTTPException(404, "Student not found")
+    s = student_row.iloc[0]
+    name = str(s.get("name", ""))
+    today = str(date.today())
+    row_data = {
+        "date": today, "student_id": data.student_id, "name": name,
+        "attendance_percentage": s.get("attendance_percentage", 0),
+        "study_hours_per_day": s.get("study_hours_per_day", 0),
+        "sleep_duration": data.sleep_hours,
+        "mobile_usage_time": s.get("mobile_usage_time", 0),
+        "stress_level": s.get("stress_level", 0),
+        "internal_marks": s.get("internal_marks", 0),
+        "mood": data.mood,
+        "risk_label": s.get("risk_label", ""),
+        "risk_score": s.get("risk_score", 0),
+        "changed_from": "", "updated_by": "student",
+    }
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+    ws = wb[SHEET_DAILY]
+    ws.append([row_data.get(c, "") for c in DAILY_COLS])
+    style_data_row(ws, ws.max_row)
+    wb.save(EXCEL_PATH)
+    return {"status": "logged", "date": today, "sleep_hours": data.sleep_hours, "mood": data.mood}
+
+@app.get("/daily-log/{student_id}")
+def get_daily_habit(student_id: str, days: int = 30):
+    df = read_daily()
+    if df.empty:
+        return []
+    df_s = df[df["student_id"] == student_id].copy()
+    if df_s.empty:
+        return []
+    df_s = df_s.sort_values("date").tail(days)
+    cols = [c for c in ["date","sleep_duration","mood","risk_label","risk_score"] if c in df_s.columns]
+    result = df_s[cols].copy()
+    result["date"] = result["date"].astype(str)
+    return result.replace({float("nan"): None}).to_dict("records")
+
+# ── Subject Stats (Admin Analytics) ──
+@app.get("/subject-stats")
+def get_subject_stats():
+    marks_df = read_subject_marks()
+    if marks_df.empty:
+        return []
+    result = []
+    for sub in SUBJECTS_LIST:
+        sub_df = marks_df[marks_df["subject_name"] == sub]
+        if sub_df.empty:
+            result.append({"subject": sub, "avg_mark": 0, "at_risk_count": 0, "pass_count": 0, "total": 0})
+            continue
+        avg = round(float(sub_df["final_mark"].mean()), 1)
+        at_risk = int((sub_df["final_mark"] < 50).sum())
+        passing = int((sub_df["final_mark"] >= 50).sum())
+        result.append({"subject": sub, "avg_mark": avg, "at_risk_count": at_risk, "pass_count": passing, "total": len(sub_df)})
+    return result
+
+# ── Peer Groups (Community Feature) ──
+@app.get("/peer-groups")
+def get_peer_groups(subject: Optional[str] = None):
+    students_df = read_students()
+    marks_df = read_subject_marks()
+    if students_df.empty:
+        return []
+    subjects = [subject] if subject else SUBJECTS_LIST
+    all_groups = []
+    for sub in subjects:
+        sub_marks = marks_df[marks_df["subject_name"] == sub] if not marks_df.empty else pd.DataFrame()
+        if sub_marks.empty:
+            at_risk_list = students_df[students_df["risk_label"] == "At Risk"].replace({float("nan"): None}).to_dict("records")
+            high_perf_list = students_df[students_df["risk_label"] == "Pass"].sort_values("risk_score", ascending=False).replace({float("nan"): None}).to_dict("records")
+            for r in at_risk_list:  r["final_mark"] = r.get("risk_score", 0)
+            for r in high_perf_list: r["final_mark"] = r.get("risk_score", 0)
+        else:
+            merged = sub_marks.merge(
+                students_df[["student_id","name","section","risk_label","risk_score"]],
+                on="student_id", how="left"
+            ).replace({float("nan"): None})
+            at_risk_list  = merged[merged["final_mark"] < 50].to_dict("records")
+            high_perf_list = merged[merged["final_mark"] >= 70].sort_values("final_mark", ascending=False).to_dict("records")
+        at_idx, hp_idx, group_idx = 0, 0, 0
+        while at_idx < len(at_risk_list) or hp_idx < len(high_perf_list):
+            learners = at_risk_list[at_idx:at_idx+3]
+            mentors  = high_perf_list[hp_idx:hp_idx+2]
+            if not learners and not mentors: break
+            group_idx += 1
+            all_groups.append({
+                "group_id": f"{sub.replace(' ','_')}_G{group_idx}",
+                "subject": sub, "group_number": group_idx,
+                "learners": [{"student_id": m["student_id"], "name": m.get("name",""), "section": m.get("section",""), "final_mark": m.get("final_mark",0), "role": "Learner"} for m in learners],
+                "mentors":  [{"student_id": m["student_id"], "name": m.get("name",""), "section": m.get("section",""), "final_mark": m.get("final_mark",0), "role": "Mentor"} for m in mentors],
+                "members":  [{"student_id": m["student_id"], "name": m.get("name",""), "section": m.get("section",""), "final_mark": m.get("final_mark",0), "role": "Learner"} for m in learners] +
+                            [{"student_id": m["student_id"], "name": m.get("name",""), "section": m.get("section",""), "final_mark": m.get("final_mark",0), "role": "Mentor"} for m in mentors],
+            })
+            at_idx += 3
+            hp_idx += 2
+    return all_groups
+
+# ── Faculty: get students for assigned subjects ──
+@app.get("/faculty/students")
+def get_faculty_students(subjects: str = ""):
+    students_df = read_students()
+    marks_df    = read_subject_marks()
+    if students_df.empty:
+        return []
+    sub_list = [s.strip() for s in subjects.split(",") if s.strip()]
+    if not sub_list or marks_df.empty:
+        return students_df.replace({float("nan"): None}).to_dict("records")
+    relevant = marks_df[marks_df["subject_name"].isin(sub_list)]["student_id"].unique()
+    filtered = students_df[students_df["student_id"].isin(relevant)]
+    result = filtered.replace({float("nan"): None}).to_dict("records")
+    for s in result:
+        sid   = s["student_id"]
+        sub_m = marks_df[(marks_df["student_id"] == sid) & (marks_df["subject_name"].isin(sub_list))]
+        s["subject_marks"] = sub_m.replace({float("nan"): None}).to_dict("records")
+    return result
+
 # ── Seed demo data ──
 @app.post("/seed")
 def seed():
@@ -678,17 +989,86 @@ def seed():
     results = []
     for s in demo:
         results.append(upsert_student(s))
+    seed_users_and_marks(results)
     return {"seeded": len(results), "results": results}
 
 
 # ── Bulk seed: all 68 ML-training students ──
+def seed_users_and_marks(results):
+    import random
+    new_users = list(DEMO_USERS)
+    
+    # Remove the placeholder "student1@school.edu" from DEMO_USERS copy and re-add with first_id
+    new_users = [u for u in new_users if u["username"] != "student01@school.edu"]
+    
+    if results:
+        first_id = str(list(results)[0]["student_id"])
+        new_users.append({
+            "username": "student01@school.edu", "password": "student01",
+            "role": "Student", "assigned_subjects": "", "student_id": first_id
+        })
+    # All students also accessible by student_id directly
+    for r in list(results):
+        sid_lower = str(r["student_id"]).lower()
+        new_users.append({
+            "username": f"{sid_lower}@school.edu", "password": sid_lower,
+            "role": "Student", "assigned_subjects": "", "student_id": str(r["student_id"])
+        })
+    users_df = pd.DataFrame(new_users)
+    wb = openpyxl.load_workbook(EXCEL_PATH)
+    if SHEET_USERS in wb.sheetnames: del wb[SHEET_USERS]
+    ws_u = wb.create_sheet(SHEET_USERS)
+    ws_u.append(USER_COLS)
+    style_header_row(ws_u)
+    for _, row in users_df.iterrows():
+        ws_u.append([row.get(c,"") for c in USER_COLS])
+        style_data_row(ws_u, ws_u.max_row)
+        
+    # Also seed dummy marks for all students for all subjects
+    if SHEET_SUBJECT_MARKS in wb.sheetnames: del wb[SHEET_SUBJECT_MARKS]
+    ws_m = wb.create_sheet(SHEET_SUBJECT_MARKS)
+    ws_m.append(SUBJECT_MARKS_COLS)
+    style_header_row(ws_m)
+    
+    marks_rows = []
+    for r in list(results):
+        sid = r["student_id"]
+        # Use internal_marks percent as base proxy for dummy marks
+        base_pct = r.get("internal_marks", 60)
+        for sub in SUBJECTS_LIST:
+            # Add some controlled randomness around their base percent
+            var = random.uniform(0.8, 1.2)
+            cur_pct = min(100, max(0, base_pct * var))
+            
+            # Map score to the 190 total point scale
+            cbt1 = round((30 * cur_pct) / 100)
+            cat1 = round((60 * cur_pct) / 100)
+            assign = round((40 * cur_pct) / 100)
+            cbt2 = round((20 * cur_pct) / 100)
+            cat2 = round((40 * cur_pct) / 100)
+            
+            total_190 = cbt1 + cat1 + assign + cbt2 + cat2
+            final_mark = min(100.0, round((total_190 * 100) / 190.0, 1))
+            
+            marks_rows.append({
+                "student_id": sid, "subject_name": sub, "cbt1": cbt1, "cat1": cat1, 
+                "assignment": assign, "cbt2": cbt2, "cat2": cat2, "final_mark": final_mark, 
+                "updated_by": "system"
+            })
+            
+    for row_dict in marks_rows:
+        ws_m.append([row_dict.get(c, "") for c in SUBJECT_MARKS_COLS])
+        style_data_row(ws_m, ws_m.max_row)
+        
+    wb.save(EXCEL_PATH)
+
 @app.post("/seed-bulk")
 def seed_bulk():
     sections = ["A","B","C"]
     results = []
     for i, (row, name) in enumerate(zip(ML_TRAIN_RAW, ML_STUDENT_NAMES), start=1):
         d = _raw_to_dict(row)
-        sid = f"S{i:03d}"
+        sid = f"student{i:02d}"
         sec = sections[(i-1) % 3]
         s = StudentInput(
             student_id=sid, name=name, section=sec,
@@ -705,6 +1085,7 @@ def seed_bulk():
             updated_by="system",
         )
         results.append(upsert_student(s))
+    seed_users_and_marks(results)
     return {"seeded": len(results), "at_risk": sum(1 for r in results if r["risk_label"]=="At Risk")}
 
 # ── Frontend Catch-all ──
