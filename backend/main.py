@@ -14,6 +14,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
+from sklearn.dummy import DummyClassifier
 
 app = FastAPI(title="AcadWatch API v2")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=True)
@@ -366,14 +367,38 @@ _y_train = np.array(
 _scaler = StandardScaler()
 _X_scaled = _scaler.fit_transform(_X_train)
 
-rf_model  = RandomForestClassifier(n_estimators=200, random_state=42)
-rf_model.fit(_X_train, _y_train)
+_unique_classes = np.unique(_y_train)
+_single_class = len(_unique_classes) < 2
+if _single_class:
+    print(f"[ML] WARNING: Training data contains only one class ({_unique_classes.tolist()}). "
+          "Falling back to DummyClassifier for all models. "
+          "Upload data with both at-risk and passing students to enable full ML functionality.")
 
-lr_model  = LogisticRegression(max_iter=2000, random_state=42)
-lr_model.fit(_X_scaled, _y_train)
+def _make_dummy():
+    d = DummyClassifier(strategy="most_frequent")
+    d.fit(_X_train, _y_train)
+    return d
 
-knn_model = KNeighborsClassifier(n_neighbors=5)
-knn_model.fit(_X_scaled, _y_train)
+try:
+    rf_model = RandomForestClassifier(n_estimators=200, random_state=42)
+    rf_model.fit(_X_train, _y_train)
+except ValueError as e:
+    print(f"[ML] RandomForest training skipped: {e}")
+    rf_model = _make_dummy()
+
+try:
+    lr_model = LogisticRegression(max_iter=2000, random_state=42)
+    lr_model.fit(_X_scaled, _y_train)
+except ValueError as e:
+    print(f"[ML] LogisticRegression training skipped: {e}")
+    lr_model = _make_dummy()
+
+try:
+    knn_model = KNeighborsClassifier(n_neighbors=5)
+    knn_model.fit(_X_scaled, _y_train)
+except ValueError as e:
+    print(f"[ML] KNeighbors training skipped: {e}")
+    knn_model = _make_dummy()
 
 print(f"[ML] Models trained on {len(_X_train)} students | "
       f"At Risk: {_y_train.sum()} | Pass: {(1-_y_train).sum()}")
@@ -396,10 +421,18 @@ def compute_risk_ml(d: dict):
     ensemble_label = "High Risk" if votes_at_risk >= 2 else "Low Risk"
     agreement_pct  = round(max(votes_at_risk, 3 - votes_at_risk) / 3 * 100, 1)
 
-    # Probabilities
-    rf_prob  = round(float(rf_model.predict_proba(fv)[0][1]),  3)
-    lr_prob  = round(float(lr_model.predict_proba(fv_s)[0][1]), 3)
-    knn_prob = round(float(knn_model.predict_proba(fv_s)[0][1]), 3)
+    # Probabilities — guard against single-class models (DummyClassifier) that
+    # only return one probability column and have no index [1].
+    def _prob_at_risk(model, fv_input):
+        proba = model.predict_proba(fv_input)[0]
+        if len(proba) < 2:
+            # Single-class model: if the only class is 1 return 1.0, else 0.0
+            return float(proba[0]) if (hasattr(model, "classes_") and model.classes_[0] == 1) else 0.0
+        return float(proba[1])
+
+    rf_prob  = round(_prob_at_risk(rf_model,  fv),  3)
+    lr_prob  = round(_prob_at_risk(lr_model,  fv_s), 3)
+    knn_prob = round(_prob_at_risk(knn_model, fv_s), 3)
 
     return rf_label, lr_label, knn_label, ensemble_label, agreement_pct, rf_prob, lr_prob, knn_prob
 
