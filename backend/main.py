@@ -77,7 +77,7 @@ def style_header_row(ws, row=1):
 def style_data_row(ws, row_idx, risk_label=None):
     fill = BODY_FONT
     bg = ALT_FILL if row_idx % 2 == 0 else PatternFill("solid", start_color="FFFFFF")
-    if risk_label == "At Risk":
+    if risk_label == "High Risk" or risk_label == "At Risk":
         bg = DANGER_FILL
     for cell in ws[row_idx]:
         cell.font = BODY_FONT
@@ -547,7 +547,9 @@ def update_dashboard_summary():
             ws.append(["Metric","Value","Date"])
             style_header_row(ws)
             today = str(date.today())
-            t = len(df); ar = len(df[df["risk_label"]=="At Risk"]); p = len(df[df["risk_label"]=="Pass"])
+            t = len(df)
+            ar = len(df[(df["risk_label"]=="High Risk") | (df["risk_label"]=="At Risk")])
+            p = len(df[(df["risk_label"]=="Low Risk") | (df["risk_label"]=="Pass")])
             rows = [
                 ("Total Students", t, today), ("At Risk", ar, today), ("Passing", p, today),
                 ("Risk Rate (%)", round(ar/t*100,1) if t else 0, today),
@@ -858,7 +860,7 @@ def upsert_student(data: StudentInput):
             "changed_from": prev_label or "", "updated_by": data.updated_by,
         })
 
-        if label == "At Risk":
+        if label == "High Risk" or label == "At Risk":
             append_recommendations(data.student_id, data.name, recommendations, data.updated_by)
 
         update_dashboard_summary()
@@ -883,10 +885,11 @@ def list_recommendations(student_id: Optional[str] = None):
     if student_id:
         df = df[df["student_id"]==student_id]
         
-    # Only show recommendations for students currently "At Risk"
+    # Only show recommendations for students currently in high-risk categories
     s_df = read_students()
     if not s_df.empty:
-        at_risk_ids = s_df[s_df["risk_label"] == "At Risk"]["student_id"].tolist()
+        at_risk_mask = (s_df["risk_label"] == "High Risk") | (s_df["risk_label"] == "At Risk")
+        at_risk_ids = s_df[at_risk_mask]["student_id"].tolist()
         df = df[df["student_id"].isin(at_risk_ids)]
         
     return df.replace({float("nan"):None}).to_dict("records")
@@ -1006,7 +1009,8 @@ def get_peer_groups(subject: Optional[str] = None, student_id: Optional[str] = N
     for sub in subjects:
         sub_marks = marks_df[marks_df["subject_name"] == sub] if not marks_df.empty else pd.DataFrame()
         if sub_marks.empty:
-            at_risk_list = students_df[students_df["risk_label"] == "At Risk"].replace({float("nan"): None}).to_dict("records")
+            at_risk_mask = (students_df["risk_label"] == "High Risk") | (students_df["risk_label"] == "At Risk")
+            at_risk_list = students_df[at_risk_mask].replace({float("nan"): None}).to_dict("records")
             high_perf_list = students_df[students_df["risk_label"] == "Pass"].sort_values("risk_score", ascending=False).replace({float("nan"): None}).to_dict("records")
             for r in at_risk_list:  r["final_mark"] = r.get("risk_score", 0)
             for r in high_perf_list: r["final_mark"] = r.get("risk_score", 0)
@@ -1188,7 +1192,8 @@ def seed_bulk():
         )
         results.append(upsert_student(s))
     seed_users_and_marks(results)
-    return {"seeded": len(results), "at_risk": sum(1 for r in results if r["risk_label"]=="At Risk")}
+    at_risk_count = sum(1 for r in results if r["risk_label"] in ["High Risk", "At Risk"])
+    return {"seeded": len(results), "at_risk": at_risk_count}
 
 # ── Frontend Catch-all ──
 @app.get("/{full_path:path}")

@@ -218,7 +218,7 @@ export default function Dashboard({ user }) {
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--text3)' }} tickFormatter={d => d.slice(5)} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--text3)' }} allowDecimals={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="at_risk_count" name="At Risk" radius={[4, 4, 0, 0]}>
+                <Bar dataKey="at_risk_count" name="High Risk" radius={[4, 4, 0, 0]}>
                   {data.risk_trend.map((e, i) => (
                     <Cell key={i} fill={e.at_risk_count > 2 ? '#dc2626' : '#f87171'} />
                   ))}
