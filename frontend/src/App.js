@@ -16,7 +16,7 @@ const NAV = [
   { to:'/students',         label:'All Students',   icon:'◉',             roles:['admin'] },
   { to:'/my-students',     label:'My Students',    icon:'👥',             roles:['faculty'] },
   { to:'/marks',            label:'Manage Marks',   icon:'✎',             roles:['faculty'] },
-  { to:'/peer-groups',      label:'Peer Groups',    icon:'🤝',             roles:['admin', 'faculty'] },
+  { to:'/peer-groups',      label:'Peer Groups',    icon:'🤝',             roles:['admin', 'faculty', 'student'] },
   { to:'/recommendations',  label:'Recommendations',icon:'📋',             roles:['admin', 'faculty'] },
   // Student nav
   { to:'/my-marks',         label:'My Performance', icon:'📊',             roles:['student'] },
@@ -147,6 +147,7 @@ export default function App() {
                 <>
                   <Route path="/my-marks"       element={<Results user={user} />} />
                   <Route path="/habits"         element={<HabitTracker user={user} />} />
+                  <Route path="/peer-groups"    element={<PeerGroups user={user} />} />
                   <Route path="/recommendations" element={<Recommendations user={user} />} />
                   <Route path="*"               element={<Navigate to="/my-marks" replace />} />
                 </>

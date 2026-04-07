@@ -998,7 +998,7 @@ def get_subject_stats():
 
 # ── Peer Groups (Community Feature) ──
 @app.get("/peer-groups")
-def get_peer_groups(subject: Optional[str] = None):
+def get_peer_groups(subject: Optional[str] = None, student_id: Optional[str] = None):
     students_df = read_students()
     marks_df = read_subject_marks()
     if students_df.empty:
@@ -1035,6 +1035,11 @@ def get_peer_groups(subject: Optional[str] = None):
             })
             at_idx += 3
             hp_idx += 2
+            
+    if student_id:
+        target_sid = str(student_id).strip().lower()
+        all_groups = [g for g in all_groups if any(str(m["student_id"]).strip().lower() == target_sid for m in g["members"])]
+        
     return all_groups
 
 # ── Faculty: get students for assigned subjects ──

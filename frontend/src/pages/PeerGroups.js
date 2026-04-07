@@ -103,12 +103,20 @@ export default function PeerGroups({ user }) {
   const [selectedSub, setSelectedSub] = useState('all');
   const [view, setView]             = useState('by-subject');
 
+  const isStudent = user?.role === 'student';
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const url = selectedSub === 'all'
-        ? `${API}/peer-groups`
-        : `${API}/peer-groups?subject=${encodeURIComponent(selectedSub)}`;
+      let url = `${API}/peer-groups`;
+      const params = new URLSearchParams();
+      
+      if (selectedSub !== 'all') params.append('subject', selectedSub);
+      if (isStudent) params.append('student_id', user.student_id);
+      
+      const queryString = params.toString();
+      if (queryString) url += `?${queryString}`;
+      
       const data = await fetch(url).then(r => r.json());
       setGroups(Array.isArray(data) ? data : []);
     } catch {
@@ -116,7 +124,7 @@ export default function PeerGroups({ user }) {
     } finally {
       setLoading(false);
     }
-  }, [selectedSub]);
+  }, [selectedSub, isStudent, user.student_id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -130,74 +138,114 @@ export default function PeerGroups({ user }) {
   const totalLearners = groups.reduce((a, g) => a + g.learners.length, 0);
   const totalMentors  = groups.reduce((a, g) => a + g.mentors.length, 0);
 
+  // For students, find how many groups they are a mentor in
+  const studentMentoringCount = isStudent 
+    ? groups.filter(g => g.mentors.some(m => m.student_id === user.student_id)).length
+    : 0;
+  const studentLearningCount = isStudent 
+    ? groups.filter(g => g.learners.some(m => m.student_id === user.student_id)).length
+    : 0;
+
   return (
     <div className="pg-page">
       {/* Header */}
       <div className="pg-header fade-in">
         <div>
-          <h1 className="page-title">👥 Peer Mentoring Groups</h1>
+          <h1 className="page-title">
+            {isStudent ? '🤝 Your Study Groups' : '👥 Peer Mentoring Groups'}
+          </h1>
           <p className="page-subtitle">
-            Auto-paired study groups · {groups.length} groups total ·
-            {totalLearners} learners + {totalMentors} mentors
+            {isStudent 
+              ? `You are part of ${groups.length} study group${groups.length !== 1 ? 's' : ''}`
+              : `Auto-paired study groups · ${groups.length} groups total · ${totalLearners} learners + ${totalMentors} mentors`
+            }
           </p>
         </div>
-        <button className="btn btn-primary" onClick={load} disabled={loading} id="refresh-groups-btn">
-          {loading ? '⟳ Loading...' : '↻ Regenerate Groups'}
-        </button>
+        {!isStudent && (
+          <button className="btn btn-primary" onClick={load} disabled={loading} id="refresh-groups-btn">
+            {loading ? '⟳ Loading...' : '↻ Regenerate Groups'}
+          </button>
+        )}
       </div>
 
       {/* Stats row */}
       <div className="pg-stats fade-in-1">
-        <div className="pg-stat-card pg-stat-blue">
-          <div className="pg-stat-val">{groups.length}</div>
-          <div className="pg-stat-label">Total Groups</div>
-        </div>
-        <div className="pg-stat-card pg-stat-red">
-          <div className="pg-stat-val">{totalLearners}</div>
-          <div className="pg-stat-label">At-Risk Learners</div>
-        </div>
-        <div className="pg-stat-card pg-stat-green">
-          <div className="pg-stat-val">{totalMentors}</div>
-          <div className="pg-stat-label">High-Perf Mentors</div>
-        </div>
-        <div className="pg-stat-card pg-stat-purple">
+        {isStudent ? (
+          <>
+            <div className="pg-stat-card pg-stat-blue">
+              <div className="pg-stat-val">{groups.length}</div>
+              <div className="pg-stat-label">Assigned Groups</div>
+            </div>
+            <div className="pg-stat-card pg-stat-green">
+              <div className="pg-stat-val">{studentMentoringCount}</div>
+              <div className="pg-stat-label">Mentoring Roles 🌟</div>
+            </div>
+            <div className="pg-stat-card pg-stat-purple">
+              <div className="pg-stat-val">{studentLearningCount}</div>
+              <div className="pg-stat-label">Learning Roles 📚</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="pg-stat-card pg-stat-blue">
+              <div className="pg-stat-val">{groups.length}</div>
+              <div className="pg-stat-label">Total Groups</div>
+            </div>
+            <div className="pg-stat-card pg-stat-red">
+              <div className="pg-stat-val">{totalLearners}</div>
+              <div className="pg-stat-label">At-Risk Learners</div>
+            </div>
+            <div className="pg-stat-card pg-stat-green">
+              <div className="pg-stat-val">{totalMentors}</div>
+              <div className="pg-stat-label">High-Perf Mentors</div>
+            </div>
+          </>
+        )}
+        <div className="pg-stat-card pg-stat-purple" style={{ visibility: isStudent ? 'hidden' : 'visible' }}>
           <div className="pg-stat-val">{Object.keys(bySubject).length}</div>
           <div className="pg-stat-label">Subjects Covered</div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="pg-filters fade-in-1">
-        <div className="filter-tabs">
-          <button
-            className={`filter-tab ${selectedSub === 'all' ? 'active' : ''}`}
-            onClick={() => setSelectedSub('all')}
-          >
-            All Subjects
-          </button>
-          {SUBJECTS.map(s => (
+      {/* Filters (only for non-students or if student has many groups) */}
+      {(!isStudent || groups.length > 5) && (
+        <div className="pg-filters fade-in-1">
+          <div className="filter-tabs">
             <button
-              key={s}
-              className={`filter-tab ${selectedSub === s ? 'active' : ''}`}
-              onClick={() => setSelectedSub(s === selectedSub ? 'all' : s)}
+              className={`filter-tab ${selectedSub === 'all' ? 'active' : ''}`}
+              onClick={() => setSelectedSub('all')}
             >
-              {s}
+              All Subjects
             </button>
-          ))}
+            {SUBJECTS.map(s => (
+              <button
+                key={s}
+                className={`filter-tab ${selectedSub === s ? 'active' : ''}`}
+                onClick={() => setSelectedSub(s === selectedSub ? 'all' : s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Content */}
       {loading ? (
         <div className="pg-loading">
           <div className="spinner spinner-dark" />
-          <span>Generating peer groups...</span>
+          <span>{isStudent ? 'Loading your groups...' : 'Generating peer groups...'}</span>
         </div>
       ) : groups.length === 0 ? (
         <div className="pg-empty card fade-in">
           <div style={{ fontSize: 48 }}>👥</div>
-          <h3>No peer groups yet</h3>
-          <p>Seed student data first, then groups will be auto-generated based on performance.</p>
+          <h3>{isStudent ? 'No study groups assigned' : 'No peer groups yet'}</h3>
+          <p>
+            {isStudent 
+              ? 'You are not currently assigned to any peer mentoring groups. This might change as new marks are recorded.'
+              : 'Seed student data first, then groups will be auto-generated based on performance.'
+            }
+          </p>
         </div>
       ) : (
         <div className="pg-content">
