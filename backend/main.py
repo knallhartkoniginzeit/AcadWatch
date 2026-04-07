@@ -145,57 +145,79 @@ DEMO_USERS = [
     {"username": "admin@school.edu",   "password": "admin123",   "role": "Admin",   "assigned_subjects": "", "student_id": ""},
 ]
 
+# Add Faculty for all subjects
 for sub in SUBJECTS_LIST:
     uname = f"{sub.replace(' ', '')}@school.edu"
     pwd = sub.replace(' ', '')
     DEMO_USERS.append({"username": uname, "password": pwd, "role": "Faculty", "assigned_subjects": sub, "student_id": ""})
 
-# student01@school.edu student_id will be patched after seeding; works as empty initially
-DEMO_USERS.append({"username": "student01@school.edu","password": "student01", "role": "Student", "assigned_subjects": "", "student_id": "student01"})
+# Add all 68 students
+for i in range(1, 69):
+    sid = f"student{i:02d}"
+    uname = f"{sid}@school.edu"
+    DEMO_USERS.append({"username": uname, "password": sid, "role": "Student", "assigned_subjects": "", "student_id": sid})
 
 def ensure_default_users():
-    """On every startup, make sure new-format demo users exist in the Users sheet."""
+    """On every startup, make sure all demo users exist in the Users sheet with current passwords."""
+    print(f"[Auth] Initializing user database at {EXCEL_PATH}...")
     try:
-        users_df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_USERS, dtype={"username": str})
-    except Exception:
+        users_df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_USERS, dtype={"username": str, "password": str})
+    except Exception as e:
+        print(f"[Auth] Could not read Users sheet ({e}), creating fresh data.")
         users_df = pd.DataFrame(columns=USER_COLS)
 
     changed = False
+    
+    # Normalize existing usernames for comparison
+    if not users_df.empty:
+        users_df["username_lower"] = users_df["username"].astype(str).str.strip().str.lower()
+    else:
+        users_df["username_lower"] = []
+
     for demo in DEMO_USERS:
-        if demo["username"] not in users_df["username"].values:
+        d_name_lower = str(demo["username"]).strip().lower()
+        
+        # Check if user exists (case-insensitive)
+        mask = users_df["username_lower"] == d_name_lower
+        if not mask.any():
+            print(f"[Auth] Creating missing demo user: {demo['username']}")
             users_df = pd.concat([users_df, pd.DataFrame([demo])], ignore_index=True)
+            # Re-update normalization after concat
+            users_df["username_lower"] = users_df["username"].astype(str).str.strip().str.lower()
             changed = True
         else:
-            # Always refresh password so it matches the current DEMO_USERS list
-            mask = users_df["username"] == demo["username"]
-            if str(users_df.loc[mask, "password"].values[0]) != demo["password"]:
-                users_df.loc[mask, "password"] = demo["password"]
+            # Refresh password and student_id/role if mismatch
+            curr_pass = str(users_df.loc[mask, "password"].values[0]).strip()
+            if curr_pass != str(demo["password"]).strip():
+                print(f"[Auth] Updating password for: {demo['username']}")
+                users_df.loc[mask, "password"] = str(demo["password"]).strip()
                 changed = True
-
-    # Patch student1@school.edu → first available Student if student_id is empty
-    try:
-        students_df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_STUDENTS, dtype={"student_id": str})
-        if not students_df.empty:
-            first_id = str(students_df.iloc[0]["student_id"])
-            mask_s = (users_df["username"] == "student1@school.edu") & (users_df["student_id"].astype(str).str.strip() == "")
-            if mask_s.any():
-                users_df.loc[mask_s, "student_id"] = first_id
-                changed = True
-    except Exception:
-        pass
+            
+            # Special case for student1 -> student01 naming migration if any legacy data exists
+            if demo["username"] == "student1@school.edu": # Deprecated but handling for safety
+                 pass 
 
     if changed:
+        print("[Auth] Saving refreshed credentials to Excel...")
         wb = openpyxl.load_workbook(EXCEL_PATH)
         if SHEET_USERS in wb.sheetnames:
             del wb[SHEET_USERS]
         ws_u = wb.create_sheet(SHEET_USERS)
         ws_u.append(USER_COLS)
         style_header_row(ws_u)
+        
         for _, row in users_df.iterrows():
-            ws_u.append([row.get(c, "") for c in USER_COLS])
+            # Only save the standard columns, drop our temp 'username_lower'
+            ws_u.append([str(row.get(c, "")).strip() for c in USER_COLS])
             style_data_row(ws_u, ws_u.max_row)
+            
         wb.save(EXCEL_PATH)
-        print(f"[Auth] Demo credentials refreshed in Users sheet ({len(DEMO_USERS)} demo accounts)")
+        print(f"[Auth] Successfully refreshed {len(DEMO_USERS)} accounts.")
+    else:
+        print("[Auth] All demo credentials up to date.")
+    
+    # Cleanup excel memory if needed
+    del users_df
 
 ensure_default_users()
 

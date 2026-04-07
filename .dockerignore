@@ -4,4 +4,4 @@ backend/venv/
 backend/.env
 frontend/build/
 .git/
-acadwatch_data.xlsx
+# acadwatch_data.xlsx
