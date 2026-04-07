@@ -11,9 +11,9 @@ const RISK_LEVELS = {
 };
 
 function getRiskLevel(riskScore) {
-  if (riskScore >= 60) return 'low';
+  if (riskScore >= 60) return 'high';
   if (riskScore >= 35) return 'medium';
-  return 'high';
+  return 'low';
 }
 
 function MLBadge({ label, prob, name }) {
@@ -160,7 +160,7 @@ export default function FacultyStudents({ user }) {
       s.subject_marks?.some(m => m.subject_name === selectedSub)
     );
   }
-  if (sortBy === 'risk')        filtered.sort((a, b) => (a.risk_score || 0) - (b.risk_score || 0));
+  if (sortBy === 'risk')        filtered.sort((a, b) => (b.risk_score || 0) - (a.risk_score || 0));
   if (sortBy === 'name')        filtered.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   if (sortBy === 'attendance')  filtered.sort((a, b) => (a.attendance_percentage || 0) - (b.attendance_percentage || 0));
 
@@ -253,7 +253,7 @@ export default function FacultyStudents({ user }) {
                     <div className="fs-mini-bar">
                       <div
                         className="fs-mini-fill"
-                        style={{ width: `${Math.min(100 - (s.risk_score || 0), 100)}%`, background: rl.color }}
+                        style={{ width: `${Math.min(s.risk_score || 0, 100)}%`, background: rl.color }}
                       />
                     </div>
                     <strong style={{ color: rl.color }}>{s.risk_score || 0}</strong>

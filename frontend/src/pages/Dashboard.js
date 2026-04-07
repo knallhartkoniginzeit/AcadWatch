@@ -308,7 +308,7 @@ export default function Dashboard({ user }) {
                 </span>
                 <div className="score-cell">
                   <div className="score-bar-bg">
-                    <div className="score-bar-fill danger-bar" style={{ width: `${Math.min(100 - (s.risk_score || 0), 100)}%` }} />
+                    <div className="score-bar-fill danger-bar" style={{ width: `${Math.min(s.risk_score || 0, 100)}%` }} />
                   </div>
                   <span className="score-num">{s.risk_score}</span>
                 </div>
