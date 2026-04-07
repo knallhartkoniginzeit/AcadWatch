@@ -6,13 +6,13 @@ const API = process.env.REACT_APP_API_URL || (window.location.hostname === 'loca
 
 const RISK_LEVELS = {
   high:   { label: 'High Risk',  color: '#dc2626', bg: '#fef2f2', badge: 'badge-danger' },
-  medium: { label: 'Medium Risk',color: '#d97706', bg: '#fffbeb', badge: 'badge-warning' },
+  medium: { label: 'Mid Risk',   color: '#d97706', bg: '#fffbeb', badge: 'badge-warning' },
   low:    { label: 'Low Risk',   color: '#059669', bg: '#ecfdf5', badge: 'badge-success' },
 };
 
 function getRiskLevel(riskScore) {
-  if (riskScore >= 60) return 'high';
-  if (riskScore >= 35) return 'medium';
+  if (riskScore > 70) return 'high';
+  if (riskScore > 35) return 'medium';
   return 'low';
 }
 

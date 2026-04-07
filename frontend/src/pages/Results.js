@@ -29,14 +29,14 @@ function MLModelPanel({ result }) {
       </div>
       <div className="ml-models-row">
         {models.map(m => {
-          const isAtRisk = m.label === 'At Risk';
+          const isAtRisk = m.label === 'High Risk' || m.label === 'At Risk';
           const pct = Math.round((m.prob || 0) * 100);
           return (
             <div key={m.key} className={`ml-model-card ${isAtRisk ? 'ml-atrisk' : 'ml-pass'}`}>
               <div className="ml-model-header">
                 <span className="ml-model-name">{m.name}</span>
                 <span className={`ml-verdict ${isAtRisk ? 'verdict-danger' : 'verdict-ok'}`}>
-                  {isAtRisk ? '⚠ At Risk' : '✓ Pass'}
+                  {isAtRisk ? '⚠ High Risk' : '✓ Low Risk'}
                 </span>
               </div>
               <div className="ml-prob-bar-wrap">
@@ -55,15 +55,15 @@ function MLModelPanel({ result }) {
       </div>
 
       {/* Ensemble verdict */}
-      <div className={`ensemble-verdict ${ensemble === 'At Risk' ? 'ev-danger' : 'ev-ok'}`}>
+      <div className={`ensemble-verdict ${ensemble === 'High Risk' || ensemble === 'At Risk' ? 'ev-danger' : 'ev-ok'}`}>
         <div className="ev-left">
-          <span className="ev-icon">{ensemble === 'At Risk' ? '⚠' : '✓'}</span>
+          <span className="ev-icon">{ensemble === 'High Risk' || ensemble === 'At Risk' ? '⚠' : '✓'}</span>
           <div>
             <div className="ev-title">Ensemble Decision</div>
             <div className="ev-sub">Majority vote across all 3 models</div>
           </div>
         </div>
-        <span className={`ev-result ${ensemble === 'At Risk' ? 'ev-result-danger' : 'ev-result-ok'}`}>
+        <span className={`ev-result ${ensemble === 'High Risk' || ensemble === 'At Risk' ? 'ev-result-danger' : 'ev-result-ok'}`}>
           {ensemble}
         </span>
       </div>
@@ -148,10 +148,11 @@ export default function Results({ user }) {
     </div>
   );
 
-  const isAtRisk = result.risk_label === 'At Risk';
+  const isAtRisk = result.risk_label === 'High Risk' || result.risk_label === 'At Risk';
+  const isMidRisk = result.risk_label === 'Mid Risk';
   const riskPct  = Math.round((result.risk_probability || 0) * 100);
   const pieData  = [
-    { name: 'Risk', value: riskPct,       color: isAtRisk ? '#dc2626' : '#d1d5db' },
+    { name: 'Risk', value: riskPct,       color: isAtRisk ? '#dc2626' : (isMidRisk ? '#d97706' : '#d1d5db') },
     { name: 'Safe', value: 100 - riskPct, color: '#059669' },
   ];
 
@@ -190,11 +191,11 @@ export default function Results({ user }) {
       </div>
 
       {/* Risk Banner */}
-      <div className={`risk-banner fade-in ${isAtRisk ? 'banner-danger' : 'banner-success'}`}>
+      <div className={`risk-banner fade-in ${isAtRisk ? 'banner-danger' : (isMidRisk ? 'banner-warning' : 'banner-success')}`}>
         <div className="banner-left">
-          <div className="banner-indicator" style={{ background: isAtRisk ? 'var(--danger)' : 'var(--success)' }} />
+          <div className="banner-indicator" style={{ background: isAtRisk ? 'var(--danger)' : (isMidRisk ? 'var(--warning)' : 'var(--success)') }} />
           <div>
-            <div className="banner-label">{isAtRisk ? '⚠ At Risk' : '✓ On Track'}</div>
+            <div className="banner-label">{isAtRisk ? '⚠ High Risk' : (isMidRisk ? '⚠ Mid Risk' : '✓ Low Risk')}</div>
             <div className="banner-sub">
               {isAtRisk
                 ? `${riskPct}% probability of academic failure — intervention recommended`
@@ -261,14 +262,14 @@ export default function Results({ user }) {
               </PieChart>
             </ResponsiveContainer>
             <div className="gauge-center">
-              <span className="gauge-num" style={{ color: isAtRisk ? 'var(--danger)' : 'var(--success)' }}>{riskPct}%</span>
+              <span className="gauge-num" style={{ color: isAtRisk ? 'var(--danger)' : (isMidRisk ? 'var(--warning)' : 'var(--success)') }}>{riskPct}%</span>
               <span className="gauge-sub">Risk</span>
             </div>
           </div>
           <div className="gauge-legend">
             <div className="gauge-leg-item">
-              <div className="gauge-dot" style={{ background: isAtRisk ? '#dc2626' : '#d1d5db' }} />
-              <span>At Risk ({riskPct}%)</span>
+              <div className="gauge-dot" style={{ background: isAtRisk ? '#dc2626' : (isMidRisk ? '#d97706' : '#d1d5db') }} />
+              <span>Risk Severity ({riskPct}%)</span>
             </div>
             <div className="gauge-leg-item">
               <div className="gauge-dot" style={{ background: '#059669' }} />

@@ -312,7 +312,9 @@ export default function Dashboard({ user }) {
                   </div>
                   <span className="score-num">{s.risk_score}</span>
                 </div>
-                <span className="badge badge-danger">At Risk</span>
+                <span className={`badge ${s.risk_label === 'High Risk' || s.risk_label === 'At Risk' ? 'badge-danger' : s.risk_label === 'Mid Risk' ? 'badge-warning' : 'badge-success'}`}>
+                  {s.risk_label}
+                </span>
                 <button className="btn btn-ghost" style={{ fontSize: 12, padding: '5px 12px' }}
                   onClick={() => navigate(user.role === 'faculty' ? '/my-students' : '/students')}>
                   View →

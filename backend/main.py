@@ -250,14 +250,9 @@ def compute_risk(d: dict, ml_prob: float = None):
         
     final_score = round(final_score, 1)
     
-    if final_score <= 10: label = "No Risk"
-    elif final_score <= 25: label = "Below Risk"
-    elif final_score <= 40: label = "Good Performance"
-    elif final_score <= 60: label = "Can Improve"
-    elif final_score <= 70: label = "Need Assistance"
-    elif final_score <= 80: label = "At Risk"
-    elif final_score <= 90: label = "High Risk"
-    else: label = "Extremely High Risk"
+    if final_score <= 35: label = "Low Risk"
+    elif final_score <= 70: label = "Mid Risk"
+    else: label = "High Risk"
     
     prob = round(final_score / 100.0, 3)
     return label, final_score, prob
@@ -365,7 +360,7 @@ def _make_feature_vector(d: dict):
 # Build training labels using the rule-based engine, then train models
 _X_train = np.array(ML_TRAIN_RAW, dtype=float)
 _y_train = np.array(
-    [1 if compute_risk(_raw_to_dict(r))[1] >= 61 else 0 for r in ML_TRAIN_RAW]
+    [1 if compute_risk(_raw_to_dict(r))[1] > 70 else 0 for r in ML_TRAIN_RAW]
 )
 
 _scaler = StandardScaler()
@@ -393,12 +388,12 @@ def compute_risk_ml(d: dict):
     lr_pred  = int(lr_model.predict(fv_s)[0])
     knn_pred = int(knn_model.predict(fv_s)[0])
 
-    rf_label  = "At Risk" if rf_pred  else "Pass"
-    lr_label  = "At Risk" if lr_pred  else "Pass"
-    knn_label = "At Risk" if knn_pred else "Pass"
+    rf_label  = "High Risk" if rf_pred  else "Low Risk"
+    lr_label  = "High Risk" if lr_pred  else "Low Risk"
+    knn_label = "High Risk" if knn_pred else "Low Risk"
 
     votes_at_risk = rf_pred + lr_pred + knn_pred
-    ensemble_label = "At Risk" if votes_at_risk >= 2 else "Pass"
+    ensemble_label = "High Risk" if votes_at_risk >= 2 else "Low Risk"
     agreement_pct  = round(max(votes_at_risk, 3 - votes_at_risk) / 3 * 100, 1)
 
     # Probabilities
@@ -709,8 +704,8 @@ def dashboard():
         }
 
     total   = len(df)
-    at_risk = int((df["risk_label"]=="At Risk").sum())
-    passing = int((df["risk_label"]=="Pass").sum())
+    at_risk = int(((df["risk_label"]=="High Risk") | (df["risk_label"]=="At Risk")).sum())
+    passing = int(((df["risk_label"]=="Low Risk") | (df["risk_label"]=="Pass")).sum())
     avg_att = round(float(df["attendance_percentage"].mean()),1)
     avg_rs  = round(float(df["risk_score"].mean()),1)
 
@@ -719,16 +714,19 @@ def dashboard():
     if not daily.empty:
         today_log = daily[daily["date"]==today]
         for _, row in today_log.iterrows():
-            if str(row.get("changed_from","")) == "Pass" and row.get("risk_label") == "At Risk":
-                worsened.append({
-                    "student_id": row["student_id"],
-                    "name": row["name"],
-                    "risk_score": row.get("risk_score",0),
-                    "attendance_percentage": row.get("attendance_percentage",0),
-                })
+            if row.get("risk_label") == "High Risk" or row.get("risk_label") == "At Risk":
+                # Only count as worsened if they WERE Pass/Low Risk previously
+                prev = str(row.get("changed_from",""))
+                if prev in ["Pass", "Low Risk", "No Risk", "Below Risk"]:
+                    worsened.append({
+                        "student_id": row["student_id"],
+                        "name": row["name"],
+                        "risk_score": row.get("risk_score",0),
+                        "attendance_percentage": row.get("attendance_percentage",0),
+                    })
 
-    # Today's at-risk list
-    today_at_risk = df[df["risk_label"]=="At Risk"][["student_id","name","risk_score","attendance_percentage","section"]].to_dict("records")
+    # Today's at-risk list (High Risk tier)
+    today_at_risk = df[(df["risk_label"]=="High Risk") | (df["risk_label"]=="At Risk")][["student_id","name","risk_score","attendance_percentage","section"]].to_dict("records")
 
     # Pending recommendations
     pending_recs = 0
@@ -752,7 +750,7 @@ def dashboard():
         for d in last7:
             day_data = daily[daily["date"]==d]
             avg = round(float(day_data["risk_score"].mean()),1) if len(day_data) else None
-            at_r = int((day_data["risk_label"]=="At Risk").sum()) if len(day_data) else 0
+            at_r = int(((day_data["risk_label"]=="High Risk") | (day_data["risk_label"]=="At Risk")).sum()) if len(day_data) else 0
             risk_trend.append({"date":str(d),"avg_risk_score":avg,"at_risk_count":at_r})
 
     students = df.replace({float("nan"):None}).to_dict("records")
